@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      7.2
+// @version      7.6
 // @description  Melhoria de acessibilidade para WhatsApp Web. Baseado no trabalho original de Juliano Lopes (https://github.com/juliano-lopes/accessibility-by-force/).
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -10,95 +10,32 @@
 // @grant        GM_addStyle
 // ==/UserScript==
 
-/**
- * Este script é uma evolução e refinamento do projeto original "WhatsappWebWithMoreAccessibility" 
- * criado por Juliano Lopes. Esta versão foca em modularidade e performance.
- */
-
 (function () {
     'use strict';
 
-    /**
-     * @class Logger
-     * Gerencia logs do sistema. Permite ativar/desativar modo debug.
-     */
     class Logger {
-        static get DEBUG() { return true; } // Mude para false em produção
+        static get DEBUG() { return true; } 
         static get PREFIX() { return '[WppA11y]'; }
-
-        static info(...args) {
-            console.info(Logger.PREFIX, ...args);
-        }
-
-        static error(...args) {
-            console.error(Logger.PREFIX, '❌', ...args);
-        }
-
-        static debug(...args) {
-            if (Logger.DEBUG) {
-                console.log(Logger.PREFIX, '🐛', ...args);
-            }
-        }
+        static info(...args) { console.info(Logger.PREFIX, ...args); }
+        static error(...args) { console.error(Logger.PREFIX, '❌', ...args); }
+        static debug(...args) { if (Logger.DEBUG) console.log(Logger.PREFIX, '🐛', ...args); }
     }
 
-    /**
-     * @class StorageManager
-     * Centraliza o acesso ao localStorage com tipagem segura e valores padrão.
-     */
     class StorageManager {
         static get KEYS() {
             return {
                 LANG: 'wpp_a11y_lang',
-                ACTIVATED: 'wpp_a11y_is_active',
-                PLAYBACK_RATE: 'wpp_a11y_playback_rate',
-                DEBUG_MODE: 'wpp_a11y_debug'
+                ACTIVATED: 'wpp_a11y_is_active'
             };
         }
-
-        /**
-         * @param {string} key
-         * @param {any} defaultValue
-         */
         static get(key, defaultValue) {
             const val = localStorage.getItem(key);
             return val !== null ? val : defaultValue;
         }
-
-        /**
-         * @param {string} key
-         * @param {any} value
-         */
-        static set(key, value) {
-            try {
-                localStorage.setItem(key, value);
-                Logger.debug(`Storage saved: ${key} = ${value}`);
-            } catch (e) {
-                Logger.error('Storage save failed', e);
-            }
-        }
-
-        static getBool(key, defaultValue = false) {
-            return this.get(key, String(defaultValue)) === 'true';
-        }
-
-        static getFloat(key, defaultValue = 1.0) {
-            const val = parseFloat(this.get(key, defaultValue));
-            return isNaN(val) ? defaultValue : val;
-        }
+        static set(key, value) { try { localStorage.setItem(key, value); } catch (e) { Logger.error('Storage save failed', e); } }
     }
 
-    /**
-     * @class DOMUtils
-     * Utilitários para manipulação segura do DOM e seletores resilientes.
-     */
     class DOMUtils {
-        /**
-         * Tenta encontrar um elemento usando múltiplos seletores (fallback).
-         * Útil quando o WhatsApp muda classes.
-         * @param {HTMLElement} root - Elemento raiz para busca (default document)
-         * @param {string[]} selectors - Array de seletores para tentar em ordem
-         * @returns {HTMLElement|null}
-         */
         static findFirst(root, selectors) {
             const base = root || document;
             for (const selector of selectors) {
@@ -108,57 +45,55 @@
             return null;
         }
 
-        /**
-         * Cria elementos acessíveis "sr-only" (apenas para leitura de tela).
-         */
-        static createSrOnlyText(text, id = null) {
-            const span = document.createElement('span');
-            span.className = 'sr-only-refined'; // Classe definida no GM_addStyle
-            if (id) span.id = id;
-            span.textContent = text;
-            return span;
+        // Extrai texto limpo de uma mensagem
+        static getMessageContent(msgNode) {
+            // Tenta pegar o texto copíavel (geralmente o corpo da msg)
+            const copyable = msgNode.querySelector('.copyable-text');
+            if (copyable) {
+                // Tenta achar o span de texto real, ignorando hora e metadados
+                const textSpan = copyable.querySelector('span.selectable-text span');
+                if (textSpan) return textSpan.innerText;
+                // Fallback para imagens/videos que tem legenda
+                const caption = copyable.parentNode.querySelector('img[alt]');
+                if (caption) return "Imagem: " + caption.getAttribute('alt');
+            }
+            return "Nova mensagem (mídia ou anexo)";
         }
     }
 
-    /**
-     * @class Constants
-     * Seletores e atalhos.
-     */
     class Constants {
-        static get VERSION() { return "7.2"; }
+        static get VERSION() { return "7.6"; }
         
         static get SELECTORS() {
             return {
                 app: '#app',
                 mainPanel: '#main',
                 sidePanel: '#pane-side',
-                // Exemplo de estratégia de fallback (Array de seletores)
                 headerTitle: ['#main header [dir="auto"]', '#main header span[title]'],
+                headerStatus: ['#main header span[title]', '#main header div[role="button"] > div > div:nth-child(2) span'],
                 messageList: ['[class*="message-in"]', '[class*="message-out"]'],
+                messageIn: 'message-in', // Classe parcial para identificar recebidas
+                messageContainer: '#main [role="application"]', 
                 footer: 'footer',
                 footerInput: 'footer [contenteditable="true"]',
-                
-                // Botões baseados em data-icon são muito mais estáveis
                 btnSend: '[data-icon="send"]',
                 btnMic: '[data-icon="ptt"]',
-                btnAudioPlay: 'button span[data-icon="audio-play"]',
-                btnAttach: '[data-icon="clip"]'
+                btnAudioPlay: 'button span[data-icon="audio-play"]'
             };
         }
 
         static get SHORTCUTS() {
             return {
                 TOGGLE: 'KeyS',
-                JUMP_PANEL: 'KeyJ',
                 CHANGE_LANG: 'KeyL',
-                READ_NEW: 'KeyK' // Preparando para feature de ler novas msgs
+                READ_NEW: 'KeyK', 
+                FOCUS_CHAT_LIST: 'Digit1', 
+                FOCUS_MSG_LIST: 'Digit2',  
+                READ_STATUS: 'KeyI'        
             };
         }
     }
 
-    /**
-     * @class I18nManager
-     */
     class I18nManager {
         constructor() {
             this.currentLang = StorageManager.get(StorageManager.KEYS.LANG, navigator.language.toLowerCase());
@@ -168,7 +103,12 @@
                     DEACTIVATED: "Acessibilidade Desativada",
                     LOADING: "Aguardando WhatsApp...",
                     JUMP_TO_CHAT: "Foco na lista de conversas",
-                    JUMP_TO_MSG: "Foco na área de mensagens",
+                    JUMP_TO_INPUT: "Escrever mensagem",
+                    JUMP_TO_MSG_LIST: "Lista de mensagens",
+                    NO_CHAT_OPEN: "Nenhuma conversa aberta",
+                    STATUS_PREFIX: "Status: ",
+                    NO_STATUS: "Nenhum status disponível ou visível",
+                    NEW_MSG_FROM: "Nova mensagem de ",
                     WRITE_TO: "Escrever para: ",
                     BTN_SEND: "Enviar mensagem",
                     BTN_RECORD: "Gravar áudio",
@@ -180,7 +120,12 @@
                     DEACTIVATED: "Accessibility Deactivated",
                     LOADING: "Waiting for WhatsApp...",
                     JUMP_TO_CHAT: "Chat list focused",
-                    JUMP_TO_MSG: "Message area focused",
+                    JUMP_TO_INPUT: "Type message",
+                    JUMP_TO_MSG_LIST: "Message list",
+                    NO_CHAT_OPEN: "No chat open",
+                    STATUS_PREFIX: "Status: ",
+                    NO_STATUS: "No status available or visible",
+                    NEW_MSG_FROM: "New message from ",
                     WRITE_TO: "Write to: ",
                     BTN_SEND: "Send",
                     BTN_RECORD: "Record voice",
@@ -192,7 +137,12 @@
                     DEACTIVATED: "Accesibilidad Desactivada",
                     LOADING: "Esperando a WhatsApp...",
                     JUMP_TO_CHAT: "Lista de chats enfocada",
-                    JUMP_TO_MSG: "Área de mensajes enfocada",
+                    JUMP_TO_INPUT: "Escribir mensaje",
+                    JUMP_TO_MSG_LIST: "Lista de mensajes",
+                    NO_CHAT_OPEN: "Ningún chat abierto",
+                    STATUS_PREFIX: "Estado: ",
+                    NO_STATUS: "Sin estado disponible",
+                    NEW_MSG_FROM: "Nuevo mensaje de ",
                     WRITE_TO: "Escribir a: ",
                     BTN_SEND: "Enviar",
                     BTN_RECORD: "Grabar voz",
@@ -211,7 +161,6 @@
             const langs = Object.keys(this.dictionaries);
             let idx = langs.indexOf(this.currentLang);
             const nextLang = langs[(idx + 1) % langs.length];
-            
             this.currentLang = nextLang;
             StorageManager.set(StorageManager.KEYS.LANG, nextLang);
             return this.t('LANG_CHANGED');
@@ -219,149 +168,206 @@
     }
 
     /**
-     * @class ToastService
+     * @class BeepService
+     * Gera sons simples usando AudioContext (sem arquivos externos).
      */
-    class ToastService {
+    class BeepService {
+        constructor() {
+            this.audioCtx = null;
+        }
+
+        _initCtx() {
+            if (!this.audioCtx) {
+                this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        playNotification() {
+            try {
+                this._initCtx();
+                const oscillator = this.audioCtx.createOscillator();
+                const gainNode = this.audioCtx.createGain();
+
+                oscillator.connect(gainNode);
+                gainNode.connect(this.audioCtx.destination);
+
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(500, this.audioCtx.currentTime); // Frequencia inicial
+                oscillator.frequency.exponentialRampToValueAtTime(1000, this.audioCtx.currentTime + 0.1); // "Ding"
+                
+                gainNode.gain.setValueAtTime(0.1, this.audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, this.audioCtx.currentTime + 0.1);
+
+                oscillator.start();
+                oscillator.stop(this.audioCtx.currentTime + 0.15);
+            } catch (e) {
+                Logger.error("Beep failed", e);
+            }
+        }
+    }
+
+    /**
+     * @class LiveAnnouncer
+     * Responsável por anunciar mensagens críticas (Assertive) para o Screen Reader.
+     * Invisível visualmente.
+     */
+    class LiveAnnouncer {
         constructor() {
             this.element = null;
             this._createDOM();
         }
 
         _createDOM() {
-            if (document.getElementById('wpp-a11y-toast')) return;
+            if (document.getElementById('wpp-a11y-live')) return;
             this.element = document.createElement('div');
-            this.element.id = 'wpp-a11y-toast';
-            this.element.setAttribute('aria-live', 'polite'); // 'polite' não interrompe o leitor
+            this.element.id = 'wpp-a11y-live';
+            this.element.setAttribute('aria-live', 'assertive'); // Assertive = Interrompe e fala
+            this.element.className = 'sr-only-refined';
             document.body.appendChild(this.element);
         }
 
+        announce(text) {
+            if (!this.element) this._createDOM();
+            // Truque para forçar re-leitura se o texto for igual
+            this.element.textContent = '';
+            setTimeout(() => {
+                this.element.textContent = text;
+            }, 50);
+        }
+    }
+
+    class ToastService {
+        constructor() {
+            this.element = null;
+            this._createDOM();
+        }
+        _createDOM() {
+            if (document.getElementById('wpp-a11y-toast')) return;
+            this.element = document.createElement('div');
+            this.element.id = 'wpp-a11y-toast';
+            this.element.setAttribute('aria-live', 'polite');
+            document.body.appendChild(this.element);
+        }
         show(message) {
             if (!this.element) this._createDOM();
             this.element.textContent = message;
             this.element.classList.add('visible');
-            Logger.debug(`Toast: ${message}`);
-
             if (this.timer) clearTimeout(this.timer);
             this.timer = setTimeout(() => {
                 this.element.classList.remove('visible');
-                // Limpa conteúdo para garantir evento aria na próxima msg igual
                 setTimeout(() => { if(!this.element.classList.contains('visible')) this.element.textContent = ''; }, 500);
             }, 3000);
         }
     }
 
-    /**
-     * @class NavigationService
-     */
     class NavigationService {
         constructor(i18n, toast) {
             this.i18n = i18n;
             this.toast = toast;
         }
 
-        jumpPanel() {
-            const side = document.querySelector(Constants.SELECTORS.sidePanel);
-            const activeEl = document.activeElement;
-            const isInsideSidePanel = side && side.contains(activeEl);
-
-            if (isInsideSidePanel) {
-                this._focusMessageArea();
-            } else {
-                this._focusSidePanel();
-            }
-        }
-
-        _focusMessageArea() {
-            const input = document.querySelector(Constants.SELECTORS.footerInput);
-            if (input) {
-                input.focus();
-                this.toast.show(this.i18n.t('JUMP_TO_MSG'));
-            } else {
-                Logger.debug("Jump Failed: Footer input not found");
-            }
-        }
-
-        _focusSidePanel() {
+        focusChatList() {
             const side = document.querySelector(Constants.SELECTORS.sidePanel);
             if (!side) return;
-            // Busca inteligente pelo último focado ou o primeiro da lista
             const selected = side.querySelector('[aria-selected="true"]') || side.querySelector('[role="row"]');
             if (selected) {
                 selected.focus();
                 this.toast.show(this.i18n.t('JUMP_TO_CHAT'));
             }
         }
+
+        handleMessageAreaFocus() {
+            const footer = document.querySelector(Constants.SELECTORS.footer);
+            if (!footer) {
+                this.toast.show(this.i18n.t('NO_CHAT_OPEN'));
+                return;
+            }
+            const input = document.querySelector(Constants.SELECTORS.footerInput);
+            const activeEl = document.activeElement;
+            if (activeEl === input) {
+                this._focusMessageListContainer();
+            } else {
+                if (input) {
+                    input.focus();
+                    this.toast.show(this.i18n.t('JUMP_TO_INPUT'));
+                }
+            }
+        }
+
+        _focusMessageListContainer() {
+            const messages = document.querySelectorAll(Constants.SELECTORS.messageList[0] + ', ' + Constants.SELECTORS.messageList[1]);
+            if (messages.length > 0) {
+                const lastMsg = messages[messages.length - 1];
+                if (!lastMsg.hasAttribute('tabindex')) lastMsg.setAttribute('tabindex', '-1');
+                lastMsg.focus();
+                this.toast.show(this.i18n.t('JUMP_TO_MSG_LIST'));
+            }
+        }
+
+        readChatStatus() {
+            if (!document.querySelector(Constants.SELECTORS.footer)) {
+                this.toast.show(this.i18n.t('NO_CHAT_OPEN'));
+                return;
+            }
+            const statusEl = DOMUtils.findFirst(document, Constants.SELECTORS.headerStatus);
+            if (statusEl) {
+                const text = statusEl.getAttribute('title') || statusEl.innerText;
+                if (text) {
+                    this.toast.show(this.i18n.t('STATUS_PREFIX') + text);
+                    return;
+                }
+            }
+            this.toast.show(this.i18n.t('NO_STATUS'));
+        }
     }
 
-    /**
-     * @class MessageEnhancer
-     */
     class MessageEnhancer {
         constructor(i18n) {
             this.i18n = i18n;
         }
-
         enhanceAll() {
             this._enhanceFooter();
             this._enhanceMessages();
         }
-
         _enhanceFooter() {
             const footer = document.querySelector(Constants.SELECTORS.footer);
             if (!footer) return;
-
             const input = footer.querySelector('[contenteditable="true"]');
-            // Usando DOMUtils para buscar titulo com fallback (Array de seletores)
             const titleEl = DOMUtils.findFirst(document, Constants.SELECTORS.headerTitle);
             const contactName = titleEl ? titleEl.innerText : "";
-
             if (input && input.getAttribute('aria-label') !== (this.i18n.t('WRITE_TO') + contactName)) {
                  input.setAttribute('aria-label', this.i18n.t('WRITE_TO') + contactName);
             }
-
-            // Labels estáticos
             const btnSend = document.querySelector(Constants.SELECTORS.btnSend);
             if (btnSend) btnSend.setAttribute('aria-label', this.i18n.t('BTN_SEND'));
-
             const btnMic = document.querySelector(Constants.SELECTORS.btnMic);
             if (btnMic) btnMic.parentElement.setAttribute('aria-label', this.i18n.t('BTN_RECORD'));
         }
-
         _enhanceMessages() {
-            // Seleciona todas as mensagens (in e out)
-            // Seletor complexo? Use document.querySelectorAll com o array do Constants se necessário,
-            // mas aqui simplifiquei para [class*="message-"]
             const messages = document.querySelectorAll('[class*="message-"]');
-            
             messages.forEach(msg => {
-                if(msg.dataset.wppA11yProcessed) return; // Evita reprocessar
-
-                // Botão Play Audio
+                if(msg.dataset.wppA11yProcessed) return; 
                 const audioPlay = msg.querySelector(Constants.SELECTORS.btnAudioPlay);
                 if (audioPlay) {
                     const btn = audioPlay.closest('button');
                     if (btn) btn.setAttribute('aria-label', this.i18n.t('BTN_PLAY_AUDIO'));
                 }
-
                 msg.dataset.wppA11yProcessed = "true";
             });
         }
     }
 
-    /**
-     * @class WppA11yApp
-     * Orquestrador Principal.
-     */
     class WppA11yApp {
         constructor() {
             this.i18n = new I18nManager();
             this.toast = new ToastService();
+            this.liveAnnouncer = new LiveAnnouncer();
+            this.beep = new BeepService();
             this.navigator = new NavigationService(this.i18n, this.toast);
             this.enhancer = new MessageEnhancer(this.i18n);
 
-            // Estado Reativo
             this.state = new Proxy({
-                activated: false // Inicia sempre falso até carregar
+                activated: false 
             }, {
                 set: (target, prop, value) => {
                     target[prop] = value;
@@ -377,9 +383,6 @@
             Logger.info(`Initializing v${Constants.VERSION}`);
             this._injectStyles();
             this._setupKeyboard();
-            
-            // Tenta recuperar estado anterior (opcional, por enquanto manual)
-            // if (StorageManager.getBool(StorageManager.KEYS.ACTIVATED)) { ... }
         }
 
         _injectStyles() {
@@ -408,14 +411,19 @@
                     e.preventDefault();
                     this.state.activated = !this.state.activated;
                 }
-
                 if (!this.state.activated) return;
-
-                if (e.altKey && e.code === Constants.SHORTCUTS.JUMP_PANEL) {
+                if (e.altKey && e.code === Constants.SHORTCUTS.FOCUS_CHAT_LIST) {
                     e.preventDefault();
-                    this.navigator.jumpPanel();
+                    this.navigator.focusChatList();
                 }
-
+                if (e.altKey && e.code === Constants.SHORTCUTS.FOCUS_MSG_LIST) {
+                    e.preventDefault();
+                    this.navigator.handleMessageAreaFocus();
+                }
+                if (e.altKey && e.code === Constants.SHORTCUTS.READ_STATUS) {
+                    e.preventDefault();
+                    this.navigator.readChatStatus();
+                }
                 if (e.altKey && e.code === Constants.SHORTCUTS.CHANGE_LANG) {
                     e.preventDefault();
                     const msg = this.i18n.cycleLanguage();
@@ -427,35 +435,51 @@
 
         _handleActivation(isActive) {
             StorageManager.set(StorageManager.KEYS.ACTIVATED, isActive);
-            
             if (isActive) {
-                // Verificação de segurança: O WhatsApp carregou?
                 if (!document.querySelector(Constants.SELECTORS.sidePanel)) {
-                    Logger.info("Activation failed: Side panel not found");
                     this.toast.show(this.i18n.t('LOADING'));
-                    this.state.activated = false; // Reverte silenciosamente (ou com aviso)
+                    this.state.activated = false;
                     return;
                 }
-
                 this.toast.show(this.i18n.t('ACTIVATED'));
                 this.enhancer.enhanceAll();
-                
-                // Inicia observador com debounce
                 const appRoot = document.querySelector(Constants.SELECTORS.app) || document.body;
                 this.mutationObserver.observe(appRoot, { childList: true, subtree: true });
-                Logger.debug("Observer started");
             } else {
                 this.toast.show(this.i18n.t('DEACTIVATED'));
                 this.mutationObserver.disconnect();
-                Logger.debug("Observer stopped");
             }
         }
 
         _onMutation(mutations) {
             if (!this.state.activated) return;
 
-            // Debounce simples implementado via flag ou timeout seria ideal aqui
-            // Por enquanto, confiamos na leveza do MessageEnhancer
+            // 1. Processamento de mensagens novas (Beep + Leitura)
+            // Filtra apenas se houver poucas adições (para evitar scroll)
+            const addedNodes = [];
+            mutations.forEach(m => m.addedNodes.forEach(n => addedNodes.push(n)));
+
+            if (addedNodes.length > 0 && addedNodes.length < 4) {
+                addedNodes.forEach(node => {
+                    // Verifica se é um elemento e se é uma mensagem de entrada
+                    if (node.nodeType === 1 && 
+                        node.classList && 
+                        node.classList.contains(Constants.SELECTORS.messageIn) &&
+                        !node.dataset.wppA11yProcessed) { // Evita duplicidade
+
+                        const content = DOMUtils.getMessageContent(node);
+                        if (content) {
+                            Logger.debug("New Message detected:", content);
+                            this.beep.playNotification();
+                            // Recupera nome do contato se for grupo?
+                            // Simplificação: apenas lê o conteudo por enquanto
+                            this.liveAnnouncer.announce(this.i18n.t('NEW_MSG_FROM') + content);
+                        }
+                    }
+                });
+            }
+
+            // 2. Aprimoramento visual/acessibilidade (Debounced)
             if (this._debounceTimer) clearTimeout(this._debounceTimer);
             this._debounceTimer = setTimeout(() => {
                  this.enhancer.enhanceAll();
@@ -463,7 +487,6 @@
         }
     }
 
-    // Start
     const app = new WppA11yApp();
     app.init();
 
