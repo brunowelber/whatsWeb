@@ -1,12 +1,19 @@
 // ==UserScript==
-// @name         WhatsappWeb With More Accessibility (Infrastructure Ready)
-// @namespace    https://github.com/juliano-lopes/accessibility-by-force/
+// @name         whatsWeb
+// @namespace    https://github.com/brunowelber/whatsWeb/
 // @version      7.2
-// @description  Versão 7.2: Fundação completa com StorageManager, Logger e DOMUtils. Pronta para implementação de features.
-// @author       Juliano Lopes (Refactored by Gemini)
+// @description  Melhoria de acessibilidade para WhatsApp Web. Baseado no trabalho original de Juliano Lopes (https://github.com/juliano-lopes/accessibility-by-force/).
+// @author       Bruno Welber
 // @match        https://web.whatsapp.com
+// @downloadURL  https://github.com/brunowelber/whatsWeb/raw/refs/heads/main/whatsWeb.user.js
+// @updateURL    https://github.com/brunowelber/whatsWeb/raw/refs/heads/main/whatsWeb.user.js
 // @grant        GM_addStyle
 // ==/UserScript==
+
+/**
+ * Este script é uma evolução e refinamento do projeto original "WhatsappWebWithMoreAccessibility" 
+ * criado por Juliano Lopes. Esta versão foca em modularidade e performance.
+ */
 
 (function () {
     'use strict';
