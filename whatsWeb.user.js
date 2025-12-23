@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      7.14.7
+// @version      7.15.0
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -116,7 +116,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "7.14.7"; } 
+        static get VERSION() { return "7.15.0"; } 
         
         static get SELECTORS() {
             return {
@@ -225,94 +225,42 @@
     class NavigationService {
         constructor(toast) {
             this.toast = toast;
-            this.lastChatName = null; // Memória para o nome do contato
-            this._setupFocusTracking();
-        }
-        
-        _setupFocusTracking() {
-            document.addEventListener('keydown', (e) => {
-                if (e.code === 'Enter') {
-                    const active = document.activeElement;
-                    const side = document.querySelector(Constants.SELECTORS.sidePanel);
-                    
-                    if (active && side && side.contains(active)) {
-                        const chatRow = active.closest('[role="row"]');
-                        if (chatRow) {
-                            // 1. Limpa ID anterior de qualquer outro elemento
-                            const prev = document.getElementById('wpp-active-chat-anchor');
-                            if (prev) prev.removeAttribute('id');
-
-                            // 2. Marca a nova conversa com ID fixo
-                            chatRow.setAttribute('id', 'wpp-active-chat-anchor');
-
-                            // 3. Salva o Nome do Contato como backup (para caso o DOM seja recriado)
-                            // Geralmente o nome está em um span com title ou dir="auto"
-                            const nameEl = chatRow.querySelector('[dir="auto"][title]') || chatRow.querySelector('[dir="auto"]');
-                            if (nameEl) {
-                                this.lastChatName = nameEl.getAttribute('title') || nameEl.innerText;
-                                Logger.debug("Conversa ativa salva:", this.lastChatName);
-                            }
-                        }
-                    }
-                }
-            });
         }
         
         focusChatList() {
             const side = document.querySelector(Constants.SELECTORS.sidePanel);
             if (!side) return;
             
-            let target = null;
-
-            // TENTATIVA 1: Busca pelo ID que injetamos (Rápido e Preciso)
-            target = document.getElementById('wpp-active-chat-anchor');
-
-            // TENTATIVA 2: Busca pelo Nome salvo (Fallback robusto contra recriação do DOM)
-            if (!target && this.lastChatName) {
-                // Procura spans que tenham o título igual ao nome salvo
-                // O seletor procura elementos visíveis na lista
-                const candidates = Array.from(side.querySelectorAll(`[title="${this.lastChatName}"], [aria-label="${this.lastChatName}"]`));
-                
-                // Filtra para pegar o container da linha
-                for (const candidate of candidates) {
-                    const row = candidate.closest('[role="row"]');
-                    if (row) {
-                        target = row;
-                        // Restaura o ID para a próxima vez
-                        target.setAttribute('id', 'wpp-active-chat-anchor');
-                        break;
-                    }
-                }
-                
-                // Fallback de texto se title não bater
-                if (!target) {
-                    const allRows = side.querySelectorAll('[role="row"]');
-                    for (const row of allRows) {
-                        if (row.innerText.includes(this.lastChatName)) {
-                            target = row;
-                            target.setAttribute('id', 'wpp-active-chat-anchor');
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // TENTATIVA 3: Fallback padrão do WhatsApp (aria-selected)
-            if (!target) {
-                target = side.querySelector('[aria-selected="true"]');
-                if (target) target = target.closest('[role="row"]') || target;
-            }
-
-            // TENTATIVA 4: Primeiro item da lista
-            if (!target) {
-                target = side.querySelector('[role="row"]');
-            }
+            // Tenta localizar a conversa visualmente selecionada
+            // (O WhatsApp geralmente mantém o aria-selected correto na linha ou célula)
+            let target = side.querySelector('[aria-selected="true"]');
+            if (target) target = target.closest('[role="row"]') || target;
+            
+            // Fallback: Primeira conversa
+            if (!target) target = side.querySelector('[role="row"]');
 
             if (target) {
+                const searchInput = document.querySelector('#side [contenteditable="true"]');
+                
+                // 1. Foca na conversa inicialmente (pode causar o bug do topo)
                 target.scrollIntoView({block: 'center', inline: 'nearest'});
                 target.setAttribute('tabindex', '0');
                 target.focus();
-                this.toast.show("Lista: " + (this.lastChatName || "Conversas"));
+
+                if (searchInput) {
+                    // 2. Imediatamente joga o foco para a busca (Simula Shift+Tab / sair da lista)
+                    // Isso força o evento de "blur" na lista
+                    searchInput.focus();
+
+                    // 3. Após breve delay, volta para a conversa (Simula Tab / voltar para lista)
+                    // Isso força um novo evento de "focus" limpo, que costuma corrigir a posição
+                    setTimeout(() => {
+                        target.focus();
+                        this.toast.show("Lista de conversas");
+                    }, 150);
+                } else {
+                    this.toast.show("Lista de conversas");
+                }
             }
         }
 
