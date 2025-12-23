@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      7.15.0
+// @version      7.15.1
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -116,7 +116,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "7.15.0"; } 
+        static get VERSION() { return "7.15.1"; } 
         
         static get SELECTORS() {
             return {
@@ -231,34 +231,42 @@
             const side = document.querySelector(Constants.SELECTORS.sidePanel);
             if (!side) return;
             
-            // Tenta localizar a conversa visualmente selecionada
-            // (O WhatsApp geralmente mantém o aria-selected correto na linha ou célula)
+            // 1. Identifica a conversa alvo (Active Chat)
             let target = side.querySelector('[aria-selected="true"]');
             if (target) target = target.closest('[role="row"]') || target;
             
-            // Fallback: Primeira conversa
+            // Fallback
             if (!target) target = side.querySelector('[role="row"]');
 
             if (target) {
+                // 2. Identifica o "Trampolim" (Elemento anterior para fazer o Shift+Tab)
+                // Prioridade: Botão Arquivadas (mais próximo) > Campo de Busca
+                const archivedBtn = side.querySelector('button[aria-label^="Arquivadas"]');
                 const searchInput = document.querySelector('#side [contenteditable="true"]');
-                
-                // 1. Foca na conversa inicialmente (pode causar o bug do topo)
-                target.scrollIntoView({block: 'center', inline: 'nearest'});
-                target.setAttribute('tabindex', '0');
-                target.focus();
+                const trampolim = archivedBtn || searchInput;
 
-                if (searchInput) {
-                    // 2. Imediatamente joga o foco para a busca (Simula Shift+Tab / sair da lista)
-                    // Isso força o evento de "blur" na lista
-                    searchInput.focus();
-
-                    // 3. Após breve delay, volta para a conversa (Simula Tab / voltar para lista)
-                    // Isso força um novo evento de "focus" limpo, que costuma corrigir a posição
+                // A. Se tiver trampolim, usa a estratégia da "Dança"
+                if (trampolim) {
+                    trampolim.focus();
+                    
                     setTimeout(() => {
+                        target.scrollIntoView({block: 'center', inline: 'nearest'});
+                        target.setAttribute('tabindex', '0');
                         target.focus();
+                        
+                        // Garante o registro do foco com um clique
+                        const opts = { view: window, bubbles: true, cancelable: true, buttons: 1 };
+                        target.dispatchEvent(new MouseEvent('mousedown', opts));
+                        target.dispatchEvent(new MouseEvent('mouseup', opts));
+                        target.dispatchEvent(new MouseEvent('click', opts));
+                        
                         this.toast.show("Lista de conversas");
                     }, 150);
-                } else {
+                } 
+                // B. Se não tiver (ex: lista vazia ou layout mudou), foca direto
+                else {
+                    target.setAttribute('tabindex', '0');
+                    target.focus();
                     this.toast.show("Lista de conversas");
                 }
             }
