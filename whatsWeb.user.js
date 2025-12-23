@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      7.14.5
+// @version      7.14.6
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -116,7 +116,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "7.14.5"; } 
+        static get VERSION() { return "7.14.6"; } 
         
         static get SELECTORS() {
             return {
@@ -263,34 +263,33 @@
             const side = document.querySelector(Constants.SELECTORS.sidePanel);
             if (!side) return;
             
-            // 1. Tenta recuperar nossa marcação personalizada (MÉTODO MAIS CONFIÁVEL)
-            let target = side.querySelector('[data-wpp-active-chat="true"]');
-            
-            // 2. Se não houver histórico nosso, tenta o padrão do WhatsApp
-            if (!target) {
-                target = side.querySelector('[aria-selected="true"]');
-                if (target) target = target.closest('[role="row"]') || target;
+            // 1. Emulação "Shift + Tab": Foca no elemento anterior à lista (Campo de Busca)
+            const searchInput = document.querySelector('#side [contenteditable="true"]');
+            if (searchInput) {
+                searchInput.focus();
             }
 
-            // 3. Fallback final: primeiro da lista
-            if (!target) {
-                target = side.querySelector('[role="row"]');
-            }
+            // 2. Emulação "Tab": Aguarda um momento e joga o foco para a conversa correta
+            setTimeout(() => {
+                // Tenta recuperar nossa marcação, depois o aria-selected, depois o primeiro
+                let target = side.querySelector('[data-wpp-active-chat="true"]');
+                
+                if (!target) {
+                    target = side.querySelector('[aria-selected="true"]');
+                    if (target) target = target.closest('[role="row"]') || target;
+                }
 
-            if (target) {
-                target.scrollIntoView({block: 'center', inline: 'nearest'});
-                
-                target.setAttribute('tabindex', '0');
-                target.focus();
-                
-                // Dispara clique para garantir sincronia
-                const opts = { view: window, bubbles: true, cancelable: true, buttons: 1 };
-                target.dispatchEvent(new MouseEvent('mousedown', opts));
-                target.dispatchEvent(new MouseEvent('mouseup', opts));
-                target.dispatchEvent(new MouseEvent('click', opts));
-                
-                this.toast.show("Lista de conversas");
-            }
+                if (!target) {
+                    target = side.querySelector('[role="row"]');
+                }
+
+                if (target) {
+                    target.scrollIntoView({block: 'center', inline: 'nearest'});
+                    target.setAttribute('tabindex', '0');
+                    target.focus();
+                    this.toast.show("Lista de conversas");
+                }
+            }, 150); // Delay para o navegador registrar a troca de contexto
         }
 
         handleMessageAreaFocus() {
