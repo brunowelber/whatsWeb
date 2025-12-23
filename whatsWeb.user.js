@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      7.15.1
+// @version      7.15.2
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -116,7 +116,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "7.15.1"; } 
+        static get VERSION() { return "7.15.2"; } 
         
         static get SELECTORS() {
             return {
@@ -231,44 +231,25 @@
             const side = document.querySelector(Constants.SELECTORS.sidePanel);
             if (!side) return;
             
-            // 1. Identifica a conversa alvo (Active Chat)
+            // Lógica Simplificada: Foca no que estiver selecionado ou no primeiro item
             let target = side.querySelector('[aria-selected="true"]');
+            
+            // Ajuste para pegar a row, caso o foco esteja interno
             if (target) target = target.closest('[role="row"]') || target;
             
-            // Fallback
+            // Fallback para o primeiro item
             if (!target) target = side.querySelector('[role="row"]');
 
             if (target) {
-                // 2. Identifica o "Trampolim" (Elemento anterior para fazer o Shift+Tab)
-                // Prioridade: Botão Arquivadas (mais próximo) > Campo de Busca
-                const archivedBtn = side.querySelector('button[aria-label^="Arquivadas"]');
-                const searchInput = document.querySelector('#side [contenteditable="true"]');
-                const trampolim = archivedBtn || searchInput;
-
-                // A. Se tiver trampolim, usa a estratégia da "Dança"
-                if (trampolim) {
-                    trampolim.focus();
-                    
-                    setTimeout(() => {
-                        target.scrollIntoView({block: 'center', inline: 'nearest'});
-                        target.setAttribute('tabindex', '0');
-                        target.focus();
-                        
-                        // Garante o registro do foco com um clique
-                        const opts = { view: window, bubbles: true, cancelable: true, buttons: 1 };
-                        target.dispatchEvent(new MouseEvent('mousedown', opts));
-                        target.dispatchEvent(new MouseEvent('mouseup', opts));
-                        target.dispatchEvent(new MouseEvent('click', opts));
-                        
-                        this.toast.show("Lista de conversas");
-                    }, 150);
-                } 
-                // B. Se não tiver (ex: lista vazia ou layout mudou), foca direto
-                else {
-                    target.setAttribute('tabindex', '0');
-                    target.focus();
-                    this.toast.show("Lista de conversas");
-                }
+                target.scrollIntoView({block: 'center', inline: 'nearest'});
+                target.setAttribute('tabindex', '0'); // Garante que é focável
+                target.focus();
+                this.toast.show("Lista de conversas");
+            } else {
+                // Fallback final: foca no painel lateral em si
+                side.setAttribute('tabindex', '-1');
+                side.focus();
+                this.toast.show("Painel lateral");
             }
         }
 
