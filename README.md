@@ -24,7 +24,29 @@ Ele transforma a experiência de uso, adicionando atalhos diretos, corrigindo fa
 | **Alt + S** | **Ligar/Desligar** o script. (Use se precisar desativar temporariamente). |
 | **Alt + 1** | Foca na **Lista de Conversas**. Se já houver uma selecionada, foca nela. |
 | **Alt + 2** | Foca no **Campo de Digitação**. Se já estiver nele, foca na **Lista de Mensagens**. |
-| **Ctrl + I** | Lê o **Status** do contato atual (Ex: "Visto hoje às...", "Online"). |
+| **Alt + V** | Lê o **Status** do contato atual (Ex: "Visto hoje às...", "Online"). |
+
+---
+
+## ⌨️ Atalhos Nativos do WhatsApp Web
+
+Para sua conveniência, aqui estão os principais atalhos já existentes no WhatsApp Web que você pode usar em conjunto com este script:
+
+| Atalho | Função |
+| :--- | :--- |
+| **Alt + I** | Abrir informações da conversa |
+| **Alt + R** | Responder mensagem |
+| **Alt + A** | Abrir menu de anexos |
+| **Alt + P** | Pausar gravação de áudio |
+| **Alt + 8** | Favoritar mensagem |
+| **Alt + K** | Pesquisa estendida |
+| **Shift + .** | Aumentar velocidade do áudio |
+| **Shift + ,** | Diminuir velocidade do áudio |
+| **Ctrl + Alt + /** | Pesquisar (Geral) |
+| **Ctrl + Shift + F** | Pesquisar na conversa |
+| **Ctrl + Alt + N** | Nova conversa |
+| **Ctrl + Enter** | Enviar áudio (PTT) |
+| **Escape** | Fechar conversa / Sair de menus |
 
 ---
 

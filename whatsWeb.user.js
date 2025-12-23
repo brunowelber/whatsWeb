@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      7.13.0
+// @version      7.13.1
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -131,6 +131,7 @@
                 footer: 'footer',
                 footerInput: 'footer [contenteditable="true"]',
                 btnSend: '[data-icon="send"]',
+                btnAttach: '[data-icon="plus"]',
                 btnMic: '[data-icon="mic-outlined"]',
                 btnAudioPlay: 'button span[data-icon="audio-play"]'
             };
@@ -141,7 +142,8 @@
                 TOGGLE: 'KeyS', 
                 FOCUS_CHAT_LIST: 'Digit1', 
                 FOCUS_MSG_LIST: 'Digit2',  
-                READ_STATUS: 'KeyI'        
+                READ_STATUS: 'KeyV',
+                ATTACH_MENU: 'KeyA'        
             };
         }
     }
@@ -304,6 +306,33 @@
             }
             this.toast.show("Status indisponível");
         }
+
+        openAttachMenu() {
+            const btn = document.querySelector(Constants.SELECTORS.btnAttach);
+            if (!btn) {
+                this.toast.show("Botão anexar não encontrado");
+                return;
+            }
+            
+            const clickable = btn.closest('button') || btn.closest('[role="button"]');
+            if (clickable) {
+                clickable.click();
+                
+                // Força o foco para o primeiro item do menu que aparecer
+                setTimeout(() => {
+                    // Procura por listas de botões que geralmente compõem o menu
+                    // O seletor busca listas (ul/ol) que tenham botões ou itens de menu
+                    const menuItems = document.querySelectorAll('ul li button, ul li [role="button"]');
+                    
+                    if (menuItems.length > 0) {
+                        // Tenta focar no último item (geralmente Fotos/Vídeos fica embaixo)
+                        // ou no primeiro, dependendo da preferência. Vamos no último pois fica mais perto do teclado visualmente.
+                        const lastItem = menuItems[menuItems.length - 1]; 
+                        lastItem.focus();
+                    }
+                }, 400); // Delay para animação do menu
+            }
+        }
     }
 
     class MessageEnhancer {
@@ -341,9 +370,16 @@
                 const content = DOMUtils.getMessageContent(msg);
                 
                 if (content) {
-                    // Aplica no container principal (para foco Alt+2)
-                    if (!msg.getAttribute('aria-label')) {
-                        msg.setAttribute('aria-label', content);
+                    // Tenta encontrar o elemento focável exato (onde o NVDA para com Alt+2 ou Tab)
+                    const focusable = msg.querySelector('[tabindex="0"]') || msg;
+                    
+                    if (!focusable.getAttribute('aria-label')) {
+                        focusable.setAttribute('aria-label', content);
+                    }
+                    
+                    // Fallback para o container principal caso o focável não seja o root
+                    if (focusable !== msg && !msg.getAttribute('aria-label')) {
+                         msg.setAttribute('aria-label', content);
                     }
                     
                     // Aplica DIRETAMENTE no texto (para navegação com setas)
@@ -445,7 +481,8 @@
                 
                 if (e.altKey && e.code === Constants.SHORTCUTS.FOCUS_CHAT_LIST) { e.preventDefault(); this.navigator.focusChatList(); }
                 if (e.altKey && e.code === Constants.SHORTCUTS.FOCUS_MSG_LIST) { e.preventDefault(); this.navigator.handleMessageAreaFocus(); }
-                if (e.ctrlKey && e.code === Constants.SHORTCUTS.READ_STATUS) { e.preventDefault(); this.navigator.readChatStatus(); }
+                if (e.altKey && e.code === Constants.SHORTCUTS.READ_STATUS) { e.preventDefault(); this.navigator.readChatStatus(); }
+                if (e.altKey && e.code === Constants.SHORTCUTS.ATTACH_MENU) { e.preventDefault(); this.navigator.openAttachMenu(); }
             });
         }
 
