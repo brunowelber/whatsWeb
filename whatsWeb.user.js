@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      7.14.0
+// @version      7.14.2
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -116,7 +116,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "7.13"; } 
+        static get VERSION() { return "7.14.2"; } 
         
         static get SELECTORS() {
             return {
@@ -231,27 +231,23 @@
             const side = document.querySelector(Constants.SELECTORS.sidePanel);
             if (!side) return;
             
-            // Tenta encontrar a conversa explicitamente selecionada (ativa)
-            // Busca diretamente pelo role="row" que tenha aria-selected="true"
-            let selectedRow = side.querySelector('[role="row"][aria-selected="true"]');
+            // Busca o elemento EXATO que está selecionado (geralmente uma div dentro da row)
+            let selectedEl = side.querySelector('[aria-selected="true"]');
             
-            // Fallback: Se não achar nada selecionado, tenta encontrar qualquer elemento selecionado e subir para a row
-            if (!selectedRow) {
-                const innerSelected = side.querySelector('[aria-selected="true"]');
-                if (innerSelected) selectedRow = innerSelected.closest('[role="row"]');
+            // Se não encontrar, tenta buscar a primeira row
+            if (!selectedEl) {
+                const firstRow = side.querySelector('[role="row"]');
+                if (firstRow) {
+                    // Tenta achar o elemento focável dentro da primeira row
+                    selectedEl = firstRow.querySelector('[tabindex="-1"]') || firstRow;
+                }
             }
-
-            // Fallback Final: Pega a primeira conversa da lista
-            if (!selectedRow) selectedRow = side.querySelector('[role="row"]');
             
-            if (selectedRow) {
-                selectedRow.scrollIntoView({block: 'center', inline: 'nearest'}); 
-                
-                // CRÍTICO: Define tabindex="0" para indicar que este é o item ativo da lista.
-                // Isso ajuda a navegação via teclado (setas) a continuar a partir deste ponto.
-                selectedRow.setAttribute('tabindex', '0');
-                
-                selectedRow.focus();
+            if (selectedEl) {
+                selectedEl.scrollIntoView({block: 'center', inline: 'nearest'}); 
+                // Define tabindex=0 no elemento específico para "ativá-lo" na lista
+                selectedEl.setAttribute('tabindex', '0');
+                selectedEl.focus();
                 this.toast.show("Lista de conversas");
             }
         }
@@ -467,21 +463,53 @@
                 // Intercepta a tecla APPLICATIONS (ContextMenu) para abrir opções da mensagem
                 if (e.key === 'ContextMenu' && this.state.activated) {
                     const active = document.activeElement;
-                    // Verifica se o foco está em uma mensagem ou dentro de uma
                     const msgNode = active.closest('.message-in, .message-out');
                     
                     if (msgNode) {
-                        // Busca o botão de contexto (setinha para baixo)
-                        // O seletor busca o span do ícone e sobe para o botão clicável
-                        const contextIcon = msgNode.querySelector('span[data-icon="down-context"]');
-                        if (contextIcon) {
-                            const contextBtn = contextIcon.closest('div[role="button"]');
-                            if (contextBtn) {
-                                e.preventDefault(); // Impede o menu nativo do navegador
-                                contextBtn.click();
-                                return;
+                        e.preventDefault(); // Impede menu nativo imediatamente
+                        
+                        // Simula hover para fazer a setinha aparecer (caso esteja oculta)
+                        const mouseOverEvent = new MouseEvent('mouseover', {
+                            view: window,
+                            bubbles: true,
+                            cancelable: true
+                        });
+                        msgNode.dispatchEvent(mouseOverEvent);
+
+                        // Pequeno delay para o React renderizar/exibir o botão
+                        setTimeout(() => {
+                            // Tenta seletores comuns para o botão de contexto (setinha)
+                            const selectors = [
+                                'span[data-icon="down-context"]',
+                                'span[data-icon="down"]',
+                                'div[role="button"][aria-label="Menu"]',
+                                'div[role="button"] span[data-icon="down-context"]'
+                            ];
+
+                            let contextBtn = null;
+                            for (const sel of selectors) {
+                                const el = msgNode.querySelector(sel);
+                                if (el) {
+                                    // Sobe para o botão clicável se achou o ícone
+                                    contextBtn = el.closest('[role="button"]') || el;
+                                    break;
+                                }
                             }
-                        }
+
+                            if (contextBtn) {
+                                contextBtn.click();
+                            } else {
+                                // Fallback: Tenta achar botões ocultos
+                                const allBtns = msgNode.querySelectorAll('[role="button"]');
+                                // Geralmente é um dos últimos botões da mensagem
+                                if (allBtns.length > 0) {
+                                     // Filtra botões visíveis ou tenta o último
+                                     // O botão de contexto costuma ser o último na estrutura do DOM da mensagem
+                                     allBtns[allBtns.length - 1].click();
+                                }
+                            }
+                        }, 50); // 50ms costuma ser suficiente
+                        return;
                     }
                 }
 
