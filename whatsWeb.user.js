@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      7.14.3
+// @version      7.14.4
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -116,7 +116,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "7.14.3"; } 
+        static get VERSION() { return "7.14.4"; } 
         
         static get SELECTORS() {
             return {
@@ -231,32 +231,29 @@
             const side = document.querySelector(Constants.SELECTORS.sidePanel);
             if (!side) return;
             
-            // Estratégia Agressiva:
-            // 1. Tenta achar o item selecionado via ARIA
-            // 2. Se não achar, pega o primeiro gridcell focado ou o primeiro da lista
-            let target = side.querySelector('[role="gridcell"][aria-selected="true"]') || 
-                         side.querySelector('[role="row"][aria-selected="true"]');
+            // Busca o elemento selecionado
+            let target = side.querySelector('[aria-selected="true"]');
             
-            if (!target) {
-                // Tenta achar qualquer elemento com tabindex=0 na lista lateral
-                target = side.querySelector('[role="gridcell"][tabindex="0"]');
-            }
-
-            if (!target) {
-                // Fallback extremo: primeiro item
+            // Se o aria-selected estiver num elemento interno, sobe para o gridcell/row
+            if (target) {
+                target = target.closest('[role="row"]') || target;
+            } else {
+                // Fallback: Tenta achar o elemento focado ou o primeiro da lista
                 target = side.querySelector('[role="row"]');
             }
 
             if (target) {
                 target.scrollIntoView({block: 'center', inline: 'nearest'});
                 
-                // Força tabindex para garantir que é focável
+                // Sequência para forçar o React a reconhecer o foco na lista virtual
                 target.setAttribute('tabindex', '0');
                 target.focus();
                 
-                // Simula interação física para "acordar" a lista virtualizada
-                const mouseEvent = new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window });
-                target.dispatchEvent(mouseEvent);
+                // Dispara sequência de clique para atualizar o "ponteiro" interno da lista
+                const opts = { view: window, bubbles: true, cancelable: true, buttons: 1 };
+                target.dispatchEvent(new MouseEvent('mousedown', opts));
+                target.dispatchEvent(new MouseEvent('mouseup', opts));
+                target.dispatchEvent(new MouseEvent('click', opts));
                 
                 this.toast.show("Lista de conversas");
             }
@@ -477,32 +474,20 @@
                     
                     if (msgNode) {
                         e.preventDefault(); 
-                        
-                        // Dispara múltiplos eventos para forçar a UI a reagir
-                        const events = ['mouseenter', 'mouseover', 'mousemove', 'mousedown'];
-                        events.forEach(evtType => {
-                            const evt = new MouseEvent(evtType, {
-                                view: window, bubbles: true, cancelable: true
-                            });
-                            msgNode.dispatchEvent(evt);
-                        });
+                        e.stopPropagation();
 
-                        // Polling agressivo para achar o botão assim que ele for injetado no DOM
-                        let attempts = 0;
-                        const interval = setInterval(() => {
-                            attempts++;
-                            const contextBtn = msgNode.querySelector('span[data-icon="down-context"]') || 
-                                               msgNode.querySelector('span[data-icon="down"]');
-                            
-                            if (contextBtn) {
-                                const clickable = contextBtn.closest('[role="button"]') || contextBtn;
-                                clickable.click();
-                                clearInterval(interval);
-                            } else if (attempts > 20) { // Tenta por ~1 segundo (20 * 50ms)
-                                clearInterval(interval);
-                            }
-                        }, 50);
-                        
+                        // Em vez de procurar o botão da setinha (que pode não existir),
+                        // simulamos um CLIQUE DIREITO (contextmenu) na mensagem.
+                        // O WhatsApp Web abre nativamente o menu de opções com o clique direito.
+                        const evt = new MouseEvent('contextmenu', {
+                            bubbles: true,
+                            cancelable: true,
+                            view: window,
+                            buttons: 2, // Botão direito
+                            clientX: msgNode.getBoundingClientRect().x + 10, // Coordenadas dentro da msg
+                            clientY: msgNode.getBoundingClientRect().y + 10
+                        });
+                        msgNode.dispatchEvent(evt);
                         return;
                     }
                 }
