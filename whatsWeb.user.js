@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      7.12
-// @description  Melhoria de acessibilidade para WhatsApp Web. Baseado no trabalho original de Juliano Lopes (https://github.com/juliano-lopes/accessibility-by-force/).
+// @version      7.12.1
+// @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
 // @downloadURL  https://github.com/brunowelber/whatsWeb/raw/refs/heads/main/whatsWeb.user.js
@@ -50,8 +50,7 @@
             if (!text) return "";
             
             // Regex para remover números tipo: +55 11 99999-9999 ou 11 9999-9999
-            // Remove também o ~ (til) que o Whats usa para nomes em grupos
-            let cleaned = text.replace(/(?:+?d?2?e?3?s? ?)?(?d?2?2?)? ?d?2?2?4?5?[-]?S?d?2?2?4?5?/g, '');
+            let cleaned = text.replace(/(?:\+?\d{1,3}\s?)?(?:\(?\d{2}\)?\s?)?\d{4,5}[-\s]?\d{4}/g, '');
             
             // Limpa caracteres de pontuação que podem sobrar soltos (ex: "Nome : Mensagem")
             cleaned = cleaned.replace(/~ */g, ''); // Remove til solto
@@ -60,7 +59,7 @@
             return cleaned.trim();
         }
 
-        static getMessageContent(msgNode) {
+        static getMessageContent(msgNode, i18n) {
             let content = null;
 
             if (msgNode) {
@@ -83,9 +82,9 @@
                 }
 
                 // 4. Voz
-                else if (msgNode.querySelector('button[aria-label="Reproduzir"]') || 
+                else if (msgNode.querySelector('button span[data-icon="audio-play"]') || 
                          msgNode.querySelector('span[data-icon="audio-play"]')) {
-                    content = "Mensagem de voz";
+                    content = i18n ? i18n.t('BTN_PLAY_AUDIO') : "Audio";
                 }
 
                 // 5. Fallback Geral
@@ -117,7 +116,7 @@
                 footer: 'footer',
                 footerInput: 'footer [contenteditable="true"]',
                 btnSend: '[data-icon="send"]',
-                btnMic: '[data-icon="ptt"]',
+                btnMic: '[data-icon="mic-outlined"]',
                 btnAudioPlay: 'button span[data-icon="audio-play"]'
             };
         }
@@ -382,7 +381,7 @@
                 if(msg.dataset.wppA11yProcessed) return; 
 
                 // Extrai e LIMPA o conteúdo (sem números de telefone)
-                const content = DOMUtils.getMessageContent(msg);
+                const content = DOMUtils.getMessageContent(msg, this.i18n);
                 
                 if (content && !msg.getAttribute('aria-label')) {
                     msg.setAttribute('aria-label', content);
@@ -429,6 +428,13 @@
             Logger.info(`Initializing v${Constants.VERSION}`);
             this._injectStyles();
             this._setupKeyboard();
+
+            // Carrega estado anterior
+            const wasActivated = StorageManager.get(StorageManager.KEYS.ACTIVATED, 'false') === 'true';
+            if (wasActivated) {
+                // Pequeno delay para garantir que o WhatsApp carregou o básico
+                setTimeout(() => { this.state.activated = true; }, 3000);
+            }
         }
 
         _injectStyles() {
@@ -506,7 +512,7 @@
                     if (msgNode.dataset.wppA11yAnnounced) return;
                     
                     setTimeout(() => {
-                        const content = DOMUtils.getMessageContent(msgNode);
+                        const content = DOMUtils.getMessageContent(msgNode, this.i18n);
                         if (content) {
                             Logger.debug("📢 Anunciando:", content);
                             this.beep.playNotification();
