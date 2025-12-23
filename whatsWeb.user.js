@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      7.14.4
+// @version      7.14.5
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -116,7 +116,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "7.14.4"; } 
+        static get VERSION() { return "7.14.5"; } 
         
         static get SELECTORS() {
             return {
@@ -225,31 +225,65 @@
     class NavigationService {
         constructor(toast) {
             this.toast = toast;
+            this._setupFocusTracking();
+        }
+        
+        _setupFocusTracking() {
+            // Monitora navegação via teclado e mouse para "marcar" a última conversa ativa
+            const updateFocusTracker = () => {
+                setTimeout(() => {
+                    const active = document.activeElement;
+                    const side = document.querySelector(Constants.SELECTORS.sidePanel);
+                    
+                    if (active && side && side.contains(active)) {
+                        // Verifica se é um item de conversa (row)
+                        const chatRow = active.closest('[role="row"]');
+                        if (chatRow) {
+                            // Limpa marcação anterior
+                            const prev = side.querySelectorAll('[data-wpp-active-chat]');
+                            prev.forEach(el => el.removeAttribute('data-wpp-active-chat'));
+                            
+                            // Marca o novo
+                            chatRow.setAttribute('data-wpp-active-chat', 'true');
+                        }
+                    }
+                }, 50); // Pequeno delay para o foco estabilizar
+            };
+
+            document.addEventListener('keyup', (e) => {
+                if (['ArrowUp', 'ArrowDown', 'Enter', 'Tab', 'Space'].includes(e.code)) {
+                    updateFocusTracker();
+                }
+            });
+            
+            document.addEventListener('mouseup', () => updateFocusTracker());
         }
         
         focusChatList() {
             const side = document.querySelector(Constants.SELECTORS.sidePanel);
             if (!side) return;
             
-            // Busca o elemento selecionado
-            let target = side.querySelector('[aria-selected="true"]');
+            // 1. Tenta recuperar nossa marcação personalizada (MÉTODO MAIS CONFIÁVEL)
+            let target = side.querySelector('[data-wpp-active-chat="true"]');
             
-            // Se o aria-selected estiver num elemento interno, sobe para o gridcell/row
-            if (target) {
-                target = target.closest('[role="row"]') || target;
-            } else {
-                // Fallback: Tenta achar o elemento focado ou o primeiro da lista
+            // 2. Se não houver histórico nosso, tenta o padrão do WhatsApp
+            if (!target) {
+                target = side.querySelector('[aria-selected="true"]');
+                if (target) target = target.closest('[role="row"]') || target;
+            }
+
+            // 3. Fallback final: primeiro da lista
+            if (!target) {
                 target = side.querySelector('[role="row"]');
             }
 
             if (target) {
                 target.scrollIntoView({block: 'center', inline: 'nearest'});
                 
-                // Sequência para forçar o React a reconhecer o foco na lista virtual
                 target.setAttribute('tabindex', '0');
                 target.focus();
                 
-                // Dispara sequência de clique para atualizar o "ponteiro" interno da lista
+                // Dispara clique para garantir sincronia
                 const opts = { view: window, bubbles: true, cancelable: true, buttons: 1 };
                 target.dispatchEvent(new MouseEvent('mousedown', opts));
                 target.dispatchEvent(new MouseEvent('mouseup', opts));
