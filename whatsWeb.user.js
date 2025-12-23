@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      7.14.2
+// @version      7.14.3
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -116,7 +116,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "7.14.2"; } 
+        static get VERSION() { return "7.14.3"; } 
         
         static get SELECTORS() {
             return {
@@ -231,23 +231,33 @@
             const side = document.querySelector(Constants.SELECTORS.sidePanel);
             if (!side) return;
             
-            // Busca o elemento EXATO que está selecionado (geralmente uma div dentro da row)
-            let selectedEl = side.querySelector('[aria-selected="true"]');
+            // Estratégia Agressiva:
+            // 1. Tenta achar o item selecionado via ARIA
+            // 2. Se não achar, pega o primeiro gridcell focado ou o primeiro da lista
+            let target = side.querySelector('[role="gridcell"][aria-selected="true"]') || 
+                         side.querySelector('[role="row"][aria-selected="true"]');
             
-            // Se não encontrar, tenta buscar a primeira row
-            if (!selectedEl) {
-                const firstRow = side.querySelector('[role="row"]');
-                if (firstRow) {
-                    // Tenta achar o elemento focável dentro da primeira row
-                    selectedEl = firstRow.querySelector('[tabindex="-1"]') || firstRow;
-                }
+            if (!target) {
+                // Tenta achar qualquer elemento com tabindex=0 na lista lateral
+                target = side.querySelector('[role="gridcell"][tabindex="0"]');
             }
-            
-            if (selectedEl) {
-                selectedEl.scrollIntoView({block: 'center', inline: 'nearest'}); 
-                // Define tabindex=0 no elemento específico para "ativá-lo" na lista
-                selectedEl.setAttribute('tabindex', '0');
-                selectedEl.focus();
+
+            if (!target) {
+                // Fallback extremo: primeiro item
+                target = side.querySelector('[role="row"]');
+            }
+
+            if (target) {
+                target.scrollIntoView({block: 'center', inline: 'nearest'});
+                
+                // Força tabindex para garantir que é focável
+                target.setAttribute('tabindex', '0');
+                target.focus();
+                
+                // Simula interação física para "acordar" a lista virtualizada
+                const mouseEvent = new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window });
+                target.dispatchEvent(mouseEvent);
+                
                 this.toast.show("Lista de conversas");
             }
         }
@@ -466,49 +476,33 @@
                     const msgNode = active.closest('.message-in, .message-out');
                     
                     if (msgNode) {
-                        e.preventDefault(); // Impede menu nativo imediatamente
+                        e.preventDefault(); 
                         
-                        // Simula hover para fazer a setinha aparecer (caso esteja oculta)
-                        const mouseOverEvent = new MouseEvent('mouseover', {
-                            view: window,
-                            bubbles: true,
-                            cancelable: true
+                        // Dispara múltiplos eventos para forçar a UI a reagir
+                        const events = ['mouseenter', 'mouseover', 'mousemove', 'mousedown'];
+                        events.forEach(evtType => {
+                            const evt = new MouseEvent(evtType, {
+                                view: window, bubbles: true, cancelable: true
+                            });
+                            msgNode.dispatchEvent(evt);
                         });
-                        msgNode.dispatchEvent(mouseOverEvent);
 
-                        // Pequeno delay para o React renderizar/exibir o botão
-                        setTimeout(() => {
-                            // Tenta seletores comuns para o botão de contexto (setinha)
-                            const selectors = [
-                                'span[data-icon="down-context"]',
-                                'span[data-icon="down"]',
-                                'div[role="button"][aria-label="Menu"]',
-                                'div[role="button"] span[data-icon="down-context"]'
-                            ];
-
-                            let contextBtn = null;
-                            for (const sel of selectors) {
-                                const el = msgNode.querySelector(sel);
-                                if (el) {
-                                    // Sobe para o botão clicável se achou o ícone
-                                    contextBtn = el.closest('[role="button"]') || el;
-                                    break;
-                                }
-                            }
-
+                        // Polling agressivo para achar o botão assim que ele for injetado no DOM
+                        let attempts = 0;
+                        const interval = setInterval(() => {
+                            attempts++;
+                            const contextBtn = msgNode.querySelector('span[data-icon="down-context"]') || 
+                                               msgNode.querySelector('span[data-icon="down"]');
+                            
                             if (contextBtn) {
-                                contextBtn.click();
-                            } else {
-                                // Fallback: Tenta achar botões ocultos
-                                const allBtns = msgNode.querySelectorAll('[role="button"]');
-                                // Geralmente é um dos últimos botões da mensagem
-                                if (allBtns.length > 0) {
-                                     // Filtra botões visíveis ou tenta o último
-                                     // O botão de contexto costuma ser o último na estrutura do DOM da mensagem
-                                     allBtns[allBtns.length - 1].click();
-                                }
+                                const clickable = contextBtn.closest('[role="button"]') || contextBtn;
+                                clickable.click();
+                                clearInterval(interval);
+                            } else if (attempts > 20) { // Tenta por ~1 segundo (20 * 50ms)
+                                clearInterval(interval);
                             }
-                        }, 50); // 50ms costuma ser suficiente
+                        }, 50);
+                        
                         return;
                     }
                 }
