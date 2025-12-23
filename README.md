@@ -6,9 +6,10 @@ Ele transforma a experiência de uso, adicionando atalhos diretos, corrigindo fa
 
 ## ✨ Principais Funcionalidades
 
-*   **Leitura Automática:** Lê o nome do remetente e o conteúdo de novas mensagens assim que elas chegam, sem precisar focar na janela.
+*   **Leitura Automática:** Lê o nome do remetente e o conteúdo de novas mensagens assim que elas chegam na **conversa aberta**, ignorando notificações de outros contatos em segundo plano.
+*   **Feedback de Envio:** Lê automaticamente as mensagens que **você envia** (ex: "Enviada: Olá!"), confirmando o conteúdo.
 *   **Filtro Inteligente:** Remove números de telefone da leitura (ex: "+55 11...") para focar apenas no nome e na mensagem.
-*   **Notificação Sonora:** Toca um "ding" suave quando chega uma nova mensagem.
+*   **Notificação Sonora:** Toca um "ding" suave quando chega uma nova mensagem na conversa ativa.
 *   **Navegação Rápida:** Atalhos de teclado para pular instantaneamente entre a lista de conversas e o campo de mensagem.
 *   **Correção de Foco:** Garante que o foco vá para a conversa correta ou para a última mensagem recebida.
 *   **Leitura de Status:** Permite ler rapidamente o status do contato (Online, Visto por último, Digitando...).
@@ -24,7 +25,6 @@ Ele transforma a experiência de uso, adicionando atalhos diretos, corrigindo fa
 | **Alt + 1** | Foca na **Lista de Conversas**. Se já houver uma selecionada, foca nela. |
 | **Alt + 2** | Foca no **Campo de Digitação**. Se já estiver nele, foca na **Lista de Mensagens**. |
 | **Ctrl + I** | Lê o **Status** do contato atual (Ex: "Visto hoje às...", "Online"). |
-| **Alt + L** | Alterna o idioma das notificações (Português, Inglês, Espanhol). |
 
 ---
 

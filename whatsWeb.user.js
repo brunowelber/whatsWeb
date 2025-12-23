@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      7.12.1
+// @version      7.13.0
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -15,16 +15,15 @@
 
     class Logger {
         static get DEBUG() { return true; } 
-        static get PREFIX() { return '[WppA11y]'; }
-        static info(...args) { console.info(Logger.PREFIX, ...args); }
-        static error(...args) { console.error(Logger.PREFIX, '❌', ...args); }
-        static debug(...args) { if (Logger.DEBUG) console.log(Logger.PREFIX, '🐛', ...args); }
+        static get PREFIX() { return '[WppA11y]'; } 
+        static info(...args) { console.info(Logger.PREFIX, ...args); } 
+        static error(...args) { console.error(Logger.PREFIX, '❌', ...args); } 
+        static debug(...args) { if (Logger.DEBUG) console.log(Logger.PREFIX, '🐛', ...args); } 
     }
 
     class StorageManager {
         static get KEYS() {
             return {
-                LANG: 'wpp_a11y_lang',
                 ACTIVATED: 'wpp_a11y_is_active'
             };
         }
@@ -32,7 +31,7 @@
             const val = localStorage.getItem(key);
             return val !== null ? val : defaultValue;
         }
-        static set(key, value) { try { localStorage.setItem(key, value); } catch (e) { Logger.error('Storage save failed', e); } }
+        static set(key, value) { try { localStorage.setItem(key, value); } catch (e) { Logger.error('Storage save failed', e); } } 
     }
 
     class DOMUtils {
@@ -59,50 +58,65 @@
             return cleaned.trim();
         }
 
-        static getMessageContent(msgNode, i18n) {
+        static getMessageContent(msgNode) {
             let content = null;
+            let isContact = false;
 
             if (msgNode) {
+                // 0. Cartão de Contato (Prioridade Alta)
+                // Detecta pelo botão de ação padrão do WhatsApp para contatos
+                const contactBtn = msgNode.querySelector('button[title^="Conversar com"]');
+                if (contactBtn) {
+                    // Extrai o nome do título do botão (Ex: "Conversar com João")
+                    const name = contactBtn.getAttribute('title').replace('Conversar com ', '');
+                    content = "Contato: " + name;
+                    isContact = true;
+                }
+
                 // 1. Texto padrão
-                const textNode = msgNode.querySelector('[data-testid="selectable-text"]') || 
-                                 msgNode.querySelector('.copyable-text span') ||
-                                 msgNode.querySelector('.copyable-text');
-                
-                if (textNode) content = textNode.innerText;
-
-                // 2. Mensagens do Sistema
-                else if (msgNode.querySelector('._akbu')) {
-                    content = msgNode.querySelector('._akbu').innerText;
-                }
-
-                // 3. Imagem
-                else if (msgNode.querySelector('img[alt]')) {
-                    const alt = msgNode.querySelector('img[alt]').getAttribute('alt');
-                    content = (alt && alt.length > 0) ? "Imagem: " + alt : "Imagem sem descrição";
-                }
-
-                // 4. Voz
-                else if (msgNode.querySelector('button span[data-icon="audio-play"]') || 
-                         msgNode.querySelector('span[data-icon="audio-play"]')) {
-                    content = i18n ? i18n.t('BTN_PLAY_AUDIO') : "Audio";
-                }
-
-                // 5. Fallback Geral
                 else {
-                    const rawText = msgNode.innerText;
-                    if (rawText && rawText.length > 0) {
-                        content = rawText.replace(/\d{1,2}:\d{2}\s*$/, ''); // Tenta remover hora do fim
+                    const textNode = msgNode.querySelector('[data-testid="selectable-text"]') || 
+                                     msgNode.querySelector('.copyable-text span') ||
+                                     msgNode.querySelector('.copyable-text');
+                    
+                    if (textNode) content = textNode.innerText;
+
+                    // 2. Mensagens do Sistema
+                    else if (msgNode.querySelector('._akbu')) {
+                        content = msgNode.querySelector('._akbu').innerText;
+                    }
+
+                    // 3. Imagem
+                    else if (msgNode.querySelector('img[alt]')) {
+                        const alt = msgNode.querySelector('img[alt]').getAttribute('alt');
+                        content = (alt && alt.length > 0) ? "Imagem: " + alt : "Imagem sem descrição";
+                    }
+
+                    // 4. Voz
+                    else if (msgNode.querySelector('button span[data-icon="audio-play"]') || 
+                             msgNode.querySelector('span[data-icon="audio-play"]')) {
+                        content = "Reproduzir";
+                    }
+
+                    // 5. Fallback Geral
+                    else {
+                        const rawText = msgNode.innerText;
+                        if (rawText && rawText.length > 0) {
+                            content = rawText.replace(/\d{1,2}:\d{2}\s*$/, ''); // Tenta remover hora do fim
+                        }
                     }
                 }
             }
 
-            // Sempre retorna o texto limpo (sem números de telefone)
+            // Se for contato, retorna direto (pode conter números no nome)
+            // Se for texto comum, passa pelo filtro cleanText
+            if (isContact) return content;
             return content ? this.cleanText(content) : null;
         }
     }
 
     class Constants {
-        static get VERSION() { return "7.12"; } 
+        static get VERSION() { return "7.13"; } 
         
         static get SELECTORS() {
             return {
@@ -112,6 +126,7 @@
                 headerTitle: '#main header [dir="auto"]', 
                 messageList: ['[class*="message-in"]', '[class*="message-out"]'],
                 messageInClass: 'message-in',
+                messageOutClass: 'message-out',
                 messageContainer: '#main [role="application"]', 
                 footer: 'footer',
                 footerInput: 'footer [contenteditable="true"]',
@@ -124,84 +139,10 @@
         static get SHORTCUTS() {
             return {
                 TOGGLE: 'KeyS', 
-                CHANGE_LANG: 'KeyL',
                 FOCUS_CHAT_LIST: 'Digit1', 
                 FOCUS_MSG_LIST: 'Digit2',  
                 READ_STATUS: 'KeyI'        
             };
-        }
-    }
-
-    class I18nManager {
-        constructor() {
-            this.currentLang = StorageManager.get(StorageManager.KEYS.LANG, navigator.language.toLowerCase());
-            this.dictionaries = {
-                "pt-br": {
-                    ACTIVATED: "Acessibilidade Ativada",
-                    DEACTIVATED: "Acessibilidade Desativada",
-                    LOADING: "Aguardando WhatsApp...",
-                    JUMP_TO_CHAT: "Foco na lista de conversas",
-                    JUMP_TO_INPUT: "Escrever mensagem",
-                    JUMP_TO_MSG_LIST: "Lista de mensagens",
-                    NO_CHAT_OPEN: "Nenhuma conversa aberta",
-                    STATUS_PREFIX: "Status: ",
-                    NO_STATUS: "Status indisponível",
-                    NEW_MSG_FROM: "Nova: ", // Encurtei para ser mais rápido
-                    WRITE_TO: "Escrever para: ",
-                    BTN_SEND: "Enviar mensagem",
-                    BTN_RECORD: "Gravar áudio",
-                    BTN_PLAY_AUDIO: "Reproduzir",
-                    LANG_CHANGED: "Idioma: Português"
-                },
-                "en-us": {
-                    ACTIVATED: "Accessibility Activated",
-                    DEACTIVATED: "Accessibility Deactivated",
-                    LOADING: "Waiting for WhatsApp...",
-                    JUMP_TO_CHAT: "Chat list focused",
-                    JUMP_TO_INPUT: "Type message",
-                    JUMP_TO_MSG_LIST: "Message list",
-                    NO_CHAT_OPEN: "No chat open",
-                    STATUS_PREFIX: "Status: ",
-                    NO_STATUS: "Status unavailable",
-                    NEW_MSG_FROM: "New: ",
-                    WRITE_TO: "Write to: ",
-                    BTN_SEND: "Send",
-                    BTN_RECORD: "Record voice",
-                    BTN_PLAY_AUDIO: "Play",
-                    LANG_CHANGED: "Language: English"
-                },
-                "es-es": {
-                    ACTIVATED: "Accesibilidad Activada",
-                    DEACTIVATED: "Accesibilidad Desactivada",
-                    LOADING: "Esperando a WhatsApp...",
-                    JUMP_TO_CHAT: "Lista de chats enfocada",
-                    JUMP_TO_INPUT: "Escribir mensaje",
-                    JUMP_TO_MSG_LIST: "Lista de mensajes",
-                    NO_CHAT_OPEN: "Ningún chat abierto",
-                    STATUS_PREFIX: "Estado: ",
-                    NO_STATUS: "Sin estado",
-                    NEW_MSG_FROM: "Nuevo: ",
-                    WRITE_TO: "Escribir a: ",
-                    BTN_SEND: "Enviar",
-                    BTN_RECORD: "Grabar voz",
-                    BTN_PLAY_AUDIO: "Reproducir",
-                    LANG_CHANGED: "Idioma: Español"
-                }
-            };
-        }
-
-        t(key) {
-            const dict = this.dictionaries[this.currentLang] || this.dictionaries['en-us'];
-            return dict[key] || `[${key}]`;
-        }
-
-        cycleLanguage() {
-            const langs = Object.keys(this.dictionaries);
-            let idx = langs.indexOf(this.currentLang);
-            const nextLang = langs[(idx + 1) % langs.length];
-            this.currentLang = nextLang;
-            StorageManager.set(StorageManager.KEYS.LANG, nextLang);
-            return this.t('LANG_CHANGED');
         }
     }
 
@@ -280,27 +221,40 @@
     }
 
     class NavigationService {
-        constructor(i18n, toast) {
-            this.i18n = i18n;
+        constructor(toast) {
             this.toast = toast;
         }
         
         focusChatList() {
             const side = document.querySelector(Constants.SELECTORS.sidePanel);
             if (!side) return;
-            let selected = side.querySelector('[role="gridcell"] [aria-selected="true"]');
+            
+            // Tenta encontrar a conversa explicitamente selecionada (ativa)
+            // Removemos a restrição de [role="gridcell"] para ser mais abrangente
+            let selected = side.querySelector('[aria-selected="true"]');
+            
+            // Fallback: Se não achar nada selecionado, pega a primeira conversa (topo)
             if (!selected) selected = side.querySelector('[role="row"]');
+            
             if (selected) {
-                selected.scrollIntoView({block: 'center', inline: 'nearest'}); 
-                selected.focus();
-                this.toast.show(this.i18n.t('JUMP_TO_CHAT'));
+                // Se o elemento selecionado não for focável (ex: é uma div interna),
+                // tenta encontrar o elemento pai ou filho que seja o container da linha (row)
+                const row = selected.closest('[role="row"]') || selected;
+                
+                row.scrollIntoView({block: 'center', inline: 'nearest'}); 
+                
+                // Garante que o elemento tenha tabindex para aceitar foco
+                if (!row.hasAttribute('tabindex')) row.setAttribute('tabindex', '-1');
+                
+                row.focus();
+                this.toast.show("Foco na lista de conversas");
             }
         }
 
         handleMessageAreaFocus() {
             const footer = document.querySelector(Constants.SELECTORS.footer);
             if (!footer) {
-                this.toast.show(this.i18n.t('NO_CHAT_OPEN'));
+                this.toast.show("Nenhuma conversa aberta");
                 return;
             }
             const input = document.querySelector(Constants.SELECTORS.footerInput);
@@ -310,7 +264,7 @@
             } else {
                 if (input) {
                     input.focus();
-                    this.toast.show(this.i18n.t('JUMP_TO_INPUT'));
+                    this.toast.show("Escrever mensagem");
                 }
             }
         }
@@ -321,14 +275,14 @@
                 const lastMsg = messages[messages.length - 1];
                 if (!lastMsg.hasAttribute('tabindex')) lastMsg.setAttribute('tabindex', '-1');
                 lastMsg.focus();
-                this.toast.show(this.i18n.t('JUMP_TO_MSG_LIST'));
+                this.toast.show("Lista de mensagens");
             }
         }
         
         readChatStatus() {
             const header = document.querySelector('#main header');
             if (!header) {
-                this.toast.show(this.i18n.t('NO_CHAT_OPEN'));
+                this.toast.show("Nenhuma conversa aberta");
                 return;
             }
             const titleEl = header.querySelector('[dir="auto"]');
@@ -338,24 +292,21 @@
                 let statusText = fullText.replace(contactName, '').replace(/\n/g, ' ').trim();
                 statusText = statusText.replace(/video-call|voice-call|search/gi, '').trim();
                 if (statusText.length > 1) {
-                    this.toast.show(this.i18n.t('STATUS_PREFIX') + statusText);
+                    this.toast.show("Status: " + statusText);
                     return;
                 }
             } else {
                 const possibleStatus = header.querySelector('span[title]:not([dir="auto"])');
                 if (possibleStatus) {
-                    this.toast.show(this.i18n.t('STATUS_PREFIX') + possibleStatus.getAttribute('title'));
+                    this.toast.show("Status: " + possibleStatus.getAttribute('title'));
                     return;
                 }
             }
-            this.toast.show(this.i18n.t('NO_STATUS'));
+            this.toast.show("Status indisponível");
         }
     }
 
     class MessageEnhancer {
-        constructor(i18n) {
-            this.i18n = i18n;
-        }
         enhanceAll() {
             this._enhanceFooter();
             this._enhanceMessages();
@@ -366,27 +317,42 @@
             const input = footer.querySelector('[contenteditable="true"]');
             const titleEl = document.querySelector(Constants.SELECTORS.headerTitle);
             const contactName = titleEl ? titleEl.innerText : "";
-            if (input && input.getAttribute('aria-label') !== (this.i18n.t('WRITE_TO') + contactName)) {
-                 input.setAttribute('aria-label', this.i18n.t('WRITE_TO') + contactName);
+            if (input && input.getAttribute('aria-label') !== ("Escrever para: " + contactName)) {
+                 input.setAttribute('aria-label', "Escrever para: " + contactName);
             }
             const btnSend = document.querySelector(Constants.SELECTORS.btnSend);
-            if (btnSend) btnSend.setAttribute('aria-label', this.i18n.t('BTN_SEND'));
+            if (btnSend) btnSend.setAttribute('aria-label', "Enviar mensagem");
             const btnMic = document.querySelector(Constants.SELECTORS.btnMic);
-            if (btnMic) btnMic.parentElement.setAttribute('aria-label', this.i18n.t('BTN_RECORD'));
+            if (btnMic) btnMic.parentElement.setAttribute('aria-label', "Gravar áudio");
         }
         
         _enhanceMessages() {
             const messages = document.querySelectorAll('[class*="message-"]');
             messages.forEach(msg => {
-                if(msg.dataset.wppA11yProcessed) return; 
+                // Se já processou o container E o texto interno, pula
+                if(msg.dataset.wppA11yProcessed === "true") return; 
 
-                // Extrai e LIMPA o conteúdo (sem números de telefone)
-                const content = DOMUtils.getMessageContent(msg, this.i18n);
+                // 1. Identifica o elemento exato que contém o texto
+                const textNode = msg.querySelector('[data-testid="selectable-text"]') || 
+                                 msg.querySelector('.copyable-text span') ||
+                                 msg.querySelector('.copyable-text');
+
+                // 2. Extrai e LIMPA o conteúdo
+                const content = DOMUtils.getMessageContent(msg);
                 
-                if (content && !msg.getAttribute('aria-label')) {
-                    msg.setAttribute('aria-label', content);
+                if (content) {
+                    // Aplica no container principal (para foco Alt+2)
+                    if (!msg.getAttribute('aria-label')) {
+                        msg.setAttribute('aria-label', content);
+                    }
+                    
+                    // Aplica DIRETAMENTE no texto (para navegação com setas)
+                    // Isso faz o leitor ler o label (sem número) em vez do innerText (com número)
+                    if (textNode && !textNode.getAttribute('aria-label')) {
+                        textNode.setAttribute('aria-label', content);
+                    }
                 } else if (!msg.getAttribute('aria-label')) {
-                    // Fallback com limpeza
+                    // Fallback
                     const raw = DOMUtils.cleanText(msg.innerText);
                     if(raw && raw.length > 0) {
                          msg.setAttribute('aria-label', raw);
@@ -396,7 +362,7 @@
                 const audioPlay = msg.querySelector(Constants.SELECTORS.btnAudioPlay);
                 if (audioPlay) {
                     const btn = audioPlay.closest('button');
-                    if (btn) btn.setAttribute('aria-label', this.i18n.t('BTN_PLAY_AUDIO'));
+                    if (btn) btn.setAttribute('aria-label', "Reproduzir");
                 }
                 
                 msg.dataset.wppA11yProcessed = "true";
@@ -406,12 +372,11 @@
 
     class WppA11yApp {
         constructor() {
-            this.i18n = new I18nManager();
             this.toast = new ToastService();
             this.liveAnnouncer = new LiveAnnouncer();
             this.beep = new BeepService();
-            this.navigator = new NavigationService(this.i18n, this.toast);
-            this.enhancer = new MessageEnhancer(this.i18n);
+            this.navigator = new NavigationService(this.toast);
+            this.enhancer = new MessageEnhancer();
             
             this.state = new Proxy({ activated: false }, {
                 set: (target, prop, value) => {
@@ -455,6 +420,23 @@
 
         _setupKeyboard() {
             document.addEventListener('keydown', (e) => {
+                // Intercepta ENTER em mensagens de áudio
+                if (e.code === 'Enter' && this.state.activated) {
+                    const active = document.activeElement;
+                    // Verifica se o elemento focado é uma mensagem (in ou out)
+                    if (active && (active.classList.contains('message-in') || active.classList.contains('message-out'))) {
+                        // Tenta achar o botão de play dentro dessa mensagem
+                        const playBtn = active.querySelector('button span[data-icon="audio-play"]');
+                        if (playBtn) {
+                            e.preventDefault();
+                            // Clica no botão (o span geralmente está dentro do button, pegamos o button pai)
+                            const clickable = playBtn.closest('button');
+                            if (clickable) clickable.click();
+                            return;
+                        }
+                    }
+                }
+
                 if (e.altKey && e.code === Constants.SHORTCUTS.TOGGLE) {
                     e.preventDefault();
                     this.state.activated = !this.state.activated;
@@ -464,7 +446,6 @@
                 if (e.altKey && e.code === Constants.SHORTCUTS.FOCUS_CHAT_LIST) { e.preventDefault(); this.navigator.focusChatList(); }
                 if (e.altKey && e.code === Constants.SHORTCUTS.FOCUS_MSG_LIST) { e.preventDefault(); this.navigator.handleMessageAreaFocus(); }
                 if (e.ctrlKey && e.code === Constants.SHORTCUTS.READ_STATUS) { e.preventDefault(); this.navigator.readChatStatus(); }
-                if (e.altKey && e.code === Constants.SHORTCUTS.CHANGE_LANG) { e.preventDefault(); const m = this.i18n.cycleLanguage(); this.toast.show(m); this.enhancer.enhanceAll(); }
             });
         }
 
@@ -472,16 +453,16 @@
             StorageManager.set(StorageManager.KEYS.ACTIVATED, isActive);
             if (isActive) {
                 if (!document.querySelector(Constants.SELECTORS.sidePanel)) {
-                    this.toast.show(this.i18n.t('LOADING'));
+                    this.toast.show("Aguardando WhatsApp...");
                     this.state.activated = false;
                     return;
                 }
-                this.toast.show(this.i18n.t('ACTIVATED'));
+                this.toast.show("Acessibilidade Ativada");
                 this.enhancer.enhanceAll();
                 const appRoot = document.querySelector(Constants.SELECTORS.app) || document.body;
                 this.mutationObserver.observe(appRoot, { childList: true, subtree: true });
             } else {
-                this.toast.show(this.i18n.t('DEACTIVATED'));
+                this.toast.show("Acessibilidade Desativada");
                 this.mutationObserver.disconnect();
             }
         }
@@ -497,11 +478,15 @@
                 mutation.addedNodes.forEach(node => {
                     if (node.nodeType !== 1) return;
 
-                    if (node.classList && node.classList.contains(Constants.SELECTORS.messageInClass)) {
+                    const isIn = node.classList && node.classList.contains(Constants.SELECTORS.messageInClass);
+                    const isOut = node.classList && node.classList.contains(Constants.SELECTORS.messageOutClass);
+
+                    if (isIn || isOut) {
                         potentialMessages.push(node);
                     } 
                     else if (node.querySelector) {
-                        const nestedMsgs = node.querySelectorAll(`.${Constants.SELECTORS.messageInClass}`);
+                        const selector = `.${Constants.SELECTORS.messageInClass}, .${Constants.SELECTORS.messageOutClass}`;
+                        const nestedMsgs = node.querySelectorAll(selector);
                         nestedMsgs.forEach(m => potentialMessages.push(m));
                     }
                 });
@@ -510,13 +495,19 @@
             if (potentialMessages.length > 0 && potentialMessages.length < 5) {
                 potentialMessages.forEach(msgNode => {
                     if (msgNode.dataset.wppA11yAnnounced) return;
+
+                    // Garante que a mensagem está visualmente na conversa aberta (dentro de #main)
+                    if (!msgNode.closest(Constants.SELECTORS.mainPanel)) return;
                     
                     setTimeout(() => {
-                        const content = DOMUtils.getMessageContent(msgNode, this.i18n);
+                        const content = DOMUtils.getMessageContent(msgNode);
                         if (content) {
+                            const isOut = msgNode.classList.contains(Constants.SELECTORS.messageOutClass);
+                            const prefix = isOut ? "Enviada: " : "Nova: ";
+                            
                             Logger.debug("📢 Anunciando:", content);
                             this.beep.playNotification();
-                            this.liveAnnouncer.announce(this.i18n.t('NEW_MSG_FROM') + content);
+                            this.liveAnnouncer.announce(prefix + content);
                             msgNode.dataset.wppA11yAnnounced = "true";
                         }
                     }, 500);
