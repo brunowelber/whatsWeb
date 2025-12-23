@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      7.13.2
+// @version      7.14.0
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -232,24 +232,27 @@
             if (!side) return;
             
             // Tenta encontrar a conversa explicitamente selecionada (ativa)
-            // Removemos a restrição de [role="gridcell"] para ser mais abrangente
-            let selected = side.querySelector('[aria-selected="true"]');
+            // Busca diretamente pelo role="row" que tenha aria-selected="true"
+            let selectedRow = side.querySelector('[role="row"][aria-selected="true"]');
             
-            // Fallback: Se não achar nada selecionado, pega a primeira conversa (topo)
-            if (!selected) selected = side.querySelector('[role="row"]');
+            // Fallback: Se não achar nada selecionado, tenta encontrar qualquer elemento selecionado e subir para a row
+            if (!selectedRow) {
+                const innerSelected = side.querySelector('[aria-selected="true"]');
+                if (innerSelected) selectedRow = innerSelected.closest('[role="row"]');
+            }
+
+            // Fallback Final: Pega a primeira conversa da lista
+            if (!selectedRow) selectedRow = side.querySelector('[role="row"]');
             
-            if (selected) {
-                // Se o elemento selecionado não for focável (ex: é uma div interna),
-                // tenta encontrar o elemento pai ou filho que seja o container da linha (row)
-                const row = selected.closest('[role="row"]') || selected;
+            if (selectedRow) {
+                selectedRow.scrollIntoView({block: 'center', inline: 'nearest'}); 
                 
-                row.scrollIntoView({block: 'center', inline: 'nearest'}); 
+                // CRÍTICO: Define tabindex="0" para indicar que este é o item ativo da lista.
+                // Isso ajuda a navegação via teclado (setas) a continuar a partir deste ponto.
+                selectedRow.setAttribute('tabindex', '0');
                 
-                // Garante que o elemento tenha tabindex para aceitar foco
-                if (!row.hasAttribute('tabindex')) row.setAttribute('tabindex', '-1');
-                
-                row.focus();
-                this.toast.show("Foco na lista de conversas");
+                selectedRow.focus();
+                this.toast.show("Lista de conversas");
             }
         }
 
@@ -461,6 +464,27 @@
 
         _setupKeyboard() {
             document.addEventListener('keydown', (e) => {
+                // Intercepta a tecla APPLICATIONS (ContextMenu) para abrir opções da mensagem
+                if (e.key === 'ContextMenu' && this.state.activated) {
+                    const active = document.activeElement;
+                    // Verifica se o foco está em uma mensagem ou dentro de uma
+                    const msgNode = active.closest('.message-in, .message-out');
+                    
+                    if (msgNode) {
+                        // Busca o botão de contexto (setinha para baixo)
+                        // O seletor busca o span do ícone e sobe para o botão clicável
+                        const contextIcon = msgNode.querySelector('span[data-icon="down-context"]');
+                        if (contextIcon) {
+                            const contextBtn = contextIcon.closest('div[role="button"]');
+                            if (contextBtn) {
+                                e.preventDefault(); // Impede o menu nativo do navegador
+                                contextBtn.click();
+                                return;
+                            }
+                        }
+                    }
+                }
+
                 // Intercepta ENTER em mensagens de áudio
                 if (e.code === 'Enter' && this.state.activated) {
                     const active = document.activeElement;
