@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      7.13.1
+// @version      7.13.2
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -373,18 +373,23 @@
                     // Tenta encontrar o elemento focável exato (onde o NVDA para com Alt+2 ou Tab)
                     const focusable = msg.querySelector('[tabindex="0"]') || msg;
                     
-                    if (!focusable.getAttribute('aria-label')) {
-                        focusable.setAttribute('aria-label', content);
+                    // FORÇA a aplicação do label, sobrescrevendo qualquer anterior para garantir consistência
+                    focusable.setAttribute('aria-label', content);
+                    
+                    // Se for Cartão de Contato, define role="article" para evitar que o NVDA
+                    // leia apenas "use as setas..." devido aos botões internos
+                    if (content.startsWith("Contato:")) {
+                        focusable.setAttribute('role', 'article');
                     }
                     
                     // Fallback para o container principal caso o focável não seja o root
-                    if (focusable !== msg && !msg.getAttribute('aria-label')) {
+                    if (focusable !== msg) {
                          msg.setAttribute('aria-label', content);
                     }
                     
                     // Aplica DIRETAMENTE no texto (para navegação com setas)
                     // Isso faz o leitor ler o label (sem número) em vez do innerText (com número)
-                    if (textNode && !textNode.getAttribute('aria-label')) {
+                    if (textNode) {
                         textNode.setAttribute('aria-label', content);
                     }
                 } else if (!msg.getAttribute('aria-label')) {
@@ -530,11 +535,20 @@
             });
 
             if (potentialMessages.length > 0 && potentialMessages.length < 5) {
+                // Obtém a lista atualizada de todas as mensagens VISÍVEIS no painel principal
+                const allVisibleMessages = document.querySelectorAll(`${Constants.SELECTORS.mainPanel} .message-in, ${Constants.SELECTORS.mainPanel} .message-out`);
+                const actualLastMessage = allVisibleMessages.length > 0 ? allVisibleMessages[allVisibleMessages.length - 1] : null;
+
                 potentialMessages.forEach(msgNode => {
                     if (msgNode.dataset.wppA11yAnnounced) return;
 
                     // Garante que a mensagem está visualmente na conversa aberta (dentro de #main)
                     if (!msgNode.closest(Constants.SELECTORS.mainPanel)) return;
+
+                    // CORREÇÃO: Verifica se esta mensagem é REALMENTE a última da lista visual.
+                    // Se não for a última (ex: msgNode !== actualLastMessage), significa que é 
+                    // uma mensagem de histórico carregada junto com a nova. Ignoramos.
+                    if (actualLastMessage && msgNode !== actualLastMessage) return;
                     
                     setTimeout(() => {
                         const content = DOMUtils.getMessageContent(msgNode);
