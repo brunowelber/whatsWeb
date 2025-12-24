@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      7.15.3
+// @version      7.15.4
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -119,7 +119,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "7.15.3"; } 
+        static get VERSION() { return "7.15.4"; } 
         
         static get SELECTORS() {
             return {
@@ -540,7 +540,13 @@
                 this.toast.show("Acessibilidade Ativada");
                 this.enhancer.enhanceAll();
                 const appRoot = document.querySelector(Constants.SELECTORS.app) || document.body;
-                this.mutationObserver.observe(appRoot, { childList: true, subtree: true });
+                // Adiciona observação de atributos para evitar que o React reverta nossas mudanças
+                this.mutationObserver.observe(appRoot, { 
+                    childList: true, 
+                    subtree: true, 
+                    attributes: true, 
+                    attributeFilter: ['aria-label'] 
+                });
             } else {
                 this.toast.show("Acessibilidade Desativada");
                 this.mutationObserver.disconnect();
@@ -551,25 +557,46 @@
             if (!this.state.activated) return;
 
             const potentialMessages = [];
+            let needsEnhance = false;
             
             mutations.forEach(mutation => {
-                if (mutation.addedNodes.length === 0) return;
+                // 1. Tratamento de Novos Elementos (ChildList)
+                if (mutation.type === 'childList') {
+                    if (mutation.addedNodes.length === 0) return;
+                    
+                    mutation.addedNodes.forEach(node => {
+                        if (node.nodeType !== 1) return;
+
+                        const isIn = node.classList && node.classList.contains(Constants.SELECTORS.messageInClass);
+                        const isOut = node.classList && node.classList.contains(Constants.SELECTORS.messageOutClass);
+
+                        if (isIn || isOut) {
+                            potentialMessages.push(node);
+                        } 
+                        else if (node.querySelector) {
+                            const selector = `.${Constants.SELECTORS.messageInClass}, .${Constants.SELECTORS.messageOutClass}`;
+                            const nestedMsgs = node.querySelectorAll(selector);
+                            nestedMsgs.forEach(m => potentialMessages.push(m));
+                        }
+                    });
+                    needsEnhance = true;
+                }
                 
-                mutation.addedNodes.forEach(node => {
-                    if (node.nodeType !== 1) return;
-
-                    const isIn = node.classList && node.classList.contains(Constants.SELECTORS.messageInClass);
-                    const isOut = node.classList && node.classList.contains(Constants.SELECTORS.messageOutClass);
-
-                    if (isIn || isOut) {
-                        potentialMessages.push(node);
-                    } 
-                    else if (node.querySelector) {
-                        const selector = `.${Constants.SELECTORS.messageInClass}, .${Constants.SELECTORS.messageOutClass}`;
-                        const nestedMsgs = node.querySelectorAll(selector);
-                        nestedMsgs.forEach(m => potentialMessages.push(m));
+                // 2. Tratamento de Alterações de Atributos (Anti-Reversão do React)
+                else if (mutation.type === 'attributes' && mutation.attributeName === 'aria-label') {
+                    const target = mutation.target;
+                    const newVal = target.getAttribute('aria-label');
+                    
+                    // Se o novo valor tiver número de telefone, limpa novamente
+                    // Verifica se já não é "Telefone" para evitar loop infinito
+                    if (newVal && newVal.match(/\d{4,}/) && !newVal.includes('Telefone')) {
+                        const cleaned = DOMUtils.cleanText(newVal);
+                        if (cleaned !== newVal) {
+                            // Define diretamente. O check acima evita loop infinito.
+                            target.setAttribute('aria-label', cleaned);
+                        }
                     }
-                });
+                }
             });
 
             if (potentialMessages.length > 0 && potentialMessages.length < 5) {
