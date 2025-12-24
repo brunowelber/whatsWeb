@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      7.15.5
+// @version      7.16.0
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -120,7 +120,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "7.15.5"; } 
+        static get VERSION() { return "7.16.0"; } 
         
         static get SELECTORS() {
             return {
@@ -147,7 +147,8 @@
                 FOCUS_CHAT_LIST: 'Digit1', 
                 FOCUS_MSG_LIST: 'Digit2',  
                 READ_STATUS: 'KeyV',
-                ATTACH_MENU: 'KeyA'        
+                ATTACH_MENU: 'KeyA',
+                TOGGLE_MONITOR: 'KeyO'        
             };
         }
     }
@@ -184,21 +185,42 @@
 
     class LiveAnnouncer {
         constructor() {
-            this.element = null;
+            this.elementAssertive = null;
+            this.elementPolite = null;
             this._createDOM();
         }
         _createDOM() {
-            if (document.getElementById('wpp-a11y-live')) return;
-            this.element = document.createElement('div');
-            this.element.id = 'wpp-a11y-live';
-            this.element.setAttribute('aria-live', 'assertive');
-            this.element.className = 'sr-only-refined';
-            document.body.appendChild(this.element);
+            // Canal Assertivo (Interrompe falas, urgente)
+            if (!document.getElementById('wpp-a11y-live')) {
+                this.elementAssertive = document.createElement('div');
+                this.elementAssertive.id = 'wpp-a11y-live';
+                this.elementAssertive.setAttribute('aria-live', 'assertive');
+                this.elementAssertive.className = 'sr-only-refined';
+                document.body.appendChild(this.elementAssertive);
+            } else {
+                this.elementAssertive = document.getElementById('wpp-a11y-live');
+            }
+
+            // Canal Polite (Educação, espera terminar de falar)
+            if (!document.getElementById('wpp-a11y-live-polite')) {
+                this.elementPolite = document.createElement('div');
+                this.elementPolite.id = 'wpp-a11y-live-polite';
+                this.elementPolite.setAttribute('aria-live', 'polite');
+                this.elementPolite.className = 'sr-only-refined';
+                document.body.appendChild(this.elementPolite);
+            } else {
+                this.elementPolite = document.getElementById('wpp-a11y-live-polite');
+            }
         }
         announce(text) {
-            if (!this.element) this._createDOM();
-            this.element.textContent = ''; 
-            setTimeout(() => { this.element.textContent = text; }, 100);
+            if (!this.elementAssertive) this._createDOM();
+            this.elementAssertive.textContent = ''; 
+            setTimeout(() => { this.elementAssertive.textContent = text; }, 50);
+        }
+        announcePolite(text) {
+            if (!this.elementPolite) this._createDOM();
+            this.elementPolite.textContent = '';
+            setTimeout(() => { this.elementPolite.textContent = text; }, 50);
         }
     }
 
@@ -425,6 +447,96 @@
         }
     }
 
+    class StatusMonitor {
+        constructor(announcer, toast) {
+            this.announcer = announcer;
+            this.toast = toast;
+            this.enabled = true;
+            this.observer = null;
+            this.currentHeader = null;
+            this.lastStatus = "";
+        }
+
+        toggle() {
+            this.enabled = !this.enabled;
+            this.toast.show("Monitor de Status: " + (this.enabled ? "Ligado" : "Desligado"));
+            if (!this.enabled) this.disconnect();
+            else this.checkAndAttach();
+        }
+
+        checkAndAttach() {
+            if (!this.enabled) return;
+
+            const header = document.querySelector(Constants.SELECTORS.headerTitle)?.closest('header');
+            if (header && header !== this.currentHeader) {
+                this.disconnect();
+                this.currentHeader = header;
+                this.lastStatus = ""; // Reseta histórico ao mudar de conversa
+                
+                // Observa mudanças no header (onde o status aparece)
+                this.observer = new MutationObserver(() => this._checkStatus());
+                this.observer.observe(header, { subtree: true, childList: true, characterData: true });
+                
+                // Checagem inicial imediata (para "Visto por último")
+                setTimeout(() => this._checkStatus(true), 500);
+            }
+        }
+
+        disconnect() {
+            if (this.observer) {
+                this.observer.disconnect();
+                this.observer = null;
+            }
+            this.currentHeader = null;
+        }
+
+        _checkStatus(isInitial = false) {
+            if (!this.currentHeader) return;
+
+            // Tenta achar o elemento de texto do status (geralmente abaixo do título)
+            // O título tem dir="auto", o status geralmente é um span irmão ou filho próximo
+            // Estratégia: Pegar todo o texto do header e remover o título do contato
+            const titleEl = this.currentHeader.querySelector('[dir="auto"]');
+            if (!titleEl) return;
+
+            const contactName = titleEl.innerText;
+            const fullText = this.currentHeader.innerText;
+            
+            // Remove o nome do contato e limpa quebras de linha
+            let statusText = fullText.replace(contactName, '').replace(/[\n\r]+/g, ' ').trim();
+            
+            // Filtros de ruído
+            statusText = statusText.replace(/video-call|voice-call|search/gi, '').trim();
+
+            if (statusText.length < 2) return; // Ignora lixo
+            if (statusText === this.lastStatus) return; // Ignora se não mudou
+
+            // Lógica de Decisão
+            const isOnline = statusText.toLowerCase() === 'online';
+            const isTyping = statusText.toLowerCase().includes('digitando');
+            const isRecording = statusText.toLowerCase().includes('gravando');
+            const isLastSeen = statusText.toLowerCase().includes('visto');
+
+            let shouldAnnounce = false;
+
+            if (isOnline || isTyping || isRecording) {
+                shouldAnnounce = true;
+            } else if (isLastSeen) {
+                // "Visto por último": Só anuncia se for a primeira vez que detectamos nesta conversa
+                // Isso evita o flood de "Visto hoje às 14:01", "Visto hoje às 14:02"
+                if (this.lastStatus === "") {
+                    shouldAnnounce = true;
+                }
+            }
+
+            if (shouldAnnounce) {
+                this.lastStatus = statusText;
+                // Usa o canal POLITE para não atropelar a leitura de mensagens
+                this.announcer.announcePolite(statusText);
+            }
+        }
+    }
+
     class WppA11yApp {
         constructor() {
             this.toast = new ToastService();
@@ -432,6 +544,7 @@
             this.beep = new BeepService();
             this.navigator = new NavigationService(this.toast);
             this.enhancer = new MessageEnhancer();
+            this.statusMonitor = new StatusMonitor(this.liveAnnouncer, this.toast);
             
             this.state = new Proxy({ activated: false }, {
                 set: (target, prop, value) => {
@@ -527,6 +640,7 @@
                 if (e.altKey && e.code === Constants.SHORTCUTS.FOCUS_MSG_LIST) { e.preventDefault(); this.navigator.handleMessageAreaFocus(); }
                 if (e.altKey && e.code === Constants.SHORTCUTS.READ_STATUS) { e.preventDefault(); this.navigator.readChatStatus(); }
                 if (e.altKey && e.code === Constants.SHORTCUTS.ATTACH_MENU) { e.preventDefault(); this.navigator.openAttachMenu(); }
+                if (e.altKey && e.code === Constants.SHORTCUTS.TOGGLE_MONITOR) { e.preventDefault(); this.statusMonitor.toggle(); }
             });
         }
 
@@ -548,14 +662,19 @@
                     attributes: true, 
                     attributeFilter: ['aria-label'] 
                 });
+                this.statusMonitor.checkAndAttach();
             } else {
                 this.toast.show("Acessibilidade Desativada");
                 this.mutationObserver.disconnect();
+                this.statusMonitor.disconnect();
             }
         }
 
         _onMutation(mutations) {
             if (!this.state.activated) return;
+
+            // Verifica se precisa reanexar o monitor de status (ex: mudou de conversa)
+            this.statusMonitor.checkAndAttach();
 
             const potentialMessages = [];
             let needsEnhance = false;
