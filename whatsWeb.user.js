@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      7.15.2
+// @version      7.15.3
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -48,10 +48,13 @@
         static cleanText(text) {
             if (!text) return "";
             
-            // Regex para remover números tipo: +55 11 99999-9999 ou 11 9999-9999
-            let cleaned = text.replace(/(?:\+?\d{1,3}\s?)?(?:\(?\d{2}\)?\s?)?\d{4,5}[-\s]?\d{4}/g, '');
+            // Regex melhorado para capturar variações de números de telefone
+            // Captura: +55, (11), 11, 99999-9999, 99999 9999, etc.
+            const phoneRegex = /(?:\+?\d{2,3}[\s-]?)?(?:\(?\d{2}\)?[\s-]?)?\d{4,5}[\s-]?\d{4}/g;
             
-            // Limpa caracteres de pontuação que podem sobrar soltos (ex: "Nome : Mensagem")
+            let cleaned = text.replace(phoneRegex, 'Telefone');
+            
+            // Limpa caracteres de pontuação que podem sobrar soltos
             cleaned = cleaned.replace(/~ */g, ''); // Remove til solto
             cleaned = cleaned.replace(/ +: +/g, ': '); // Normaliza dois pontos
             
@@ -116,7 +119,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "7.15.2"; } 
+        static get VERSION() { return "7.15.3"; } 
         
         static get SELECTORS() {
             return {
@@ -388,10 +391,20 @@
                     }
                     
                     // Aplica DIRETAMENTE no texto (para navegação com setas)
-                    // Isso faz o leitor ler o label (sem número) em vez do innerText (com número)
                     if (textNode) {
                         textNode.setAttribute('aria-label', content);
                     }
+
+                    // Tenta limpar o REMETENTE (se for um número)
+                    // Procura spans que tenham label terminando em ":" (ex: "+55 11 9999-9999:")
+                    const senderSpans = msg.querySelectorAll('span[aria-label$=":"]');
+                    senderSpans.forEach(span => {
+                        const originalLabel = span.getAttribute('aria-label');
+                        const cleanedLabel = DOMUtils.cleanText(originalLabel);
+                        if (cleanedLabel !== originalLabel) {
+                            span.setAttribute('aria-label', cleanedLabel);
+                        }
+                    });
                 } else if (!msg.getAttribute('aria-label')) {
                     // Fallback
                     const raw = DOMUtils.cleanText(msg.innerText);
