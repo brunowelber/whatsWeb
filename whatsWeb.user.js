@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      7.15.4
+// @version      7.15.5
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -52,7 +52,8 @@
             // Captura: +55, (11), 11, 99999-9999, 99999 9999, etc.
             const phoneRegex = /(?:\+?\d{2,3}[\s-]?)?(?:\(?\d{2}\)?[\s-]?)?\d{4,5}[\s-]?\d{4}/g;
             
-            let cleaned = text.replace(phoneRegex, 'Telefone');
+            // Remove o número completamente (substitui por vazio)
+            let cleaned = text.replace(phoneRegex, '');
             
             // Limpa caracteres de pontuação que podem sobrar soltos
             cleaned = cleaned.replace(/~ */g, ''); // Remove til solto
@@ -119,7 +120,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "7.15.4"; } 
+        static get VERSION() { return "7.15.5"; } 
         
         static get SELECTORS() {
             return {
@@ -587,12 +588,10 @@
                     const target = mutation.target;
                     const newVal = target.getAttribute('aria-label');
                     
-                    // Se o novo valor tiver número de telefone, limpa novamente
-                    // Verifica se já não é "Telefone" para evitar loop infinito
-                    if (newVal && newVal.match(/\d{4,}/) && !newVal.includes('Telefone')) {
+                    // Se o novo valor tiver número de telefone (sequência de 4 ou mais dígitos), limpa novamente
+                    if (newVal && newVal.match(/\d{4,}/)) {
                         const cleaned = DOMUtils.cleanText(newVal);
                         if (cleaned !== newVal) {
-                            // Define diretamente. O check acima evita loop infinito.
                             target.setAttribute('aria-label', cleaned);
                         }
                     }
