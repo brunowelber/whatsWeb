@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      7.17.0
+// @version      7.18.0
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -62,6 +62,31 @@
             return cleaned.trim();
         }
 
+        static getAudioButton(msgNode) {
+            if (!msgNode) return null;
+            
+            // 1. Tenta pelo seletor padrão
+            let btn = msgNode.querySelector(Constants.SELECTORS.btnAudioPlay);
+            if (btn) return btn.tagName === 'BUTTON' ? btn : btn.closest('button');
+
+            // 2. Tenta pela nova estrutura (SVG com título de play/pause)
+            const titles = msgNode.querySelectorAll('svg title');
+            for (const t of titles) {
+                const text = t.textContent.toLowerCase();
+                if (text.includes('play') || text.includes('pause')) {
+                    return t.closest('button');
+                }
+            }
+
+            // 3. Fallback pelo rótulo bugado mencionado pelo usuário
+            const buggedBtn = msgNode.querySelector('button[aria-label="Imagem sem descrição"]');
+            if (buggedBtn && buggedBtn.querySelector('svg')) {
+                return buggedBtn;
+            }
+
+            return null;
+        }
+
         static getMessageContent(msgNode) {
             let content = null;
             let isContact = false;
@@ -97,7 +122,7 @@
                     }
 
                     // 4. Voz (Botão de Play ou Pause)
-                    else if (msgNode.querySelector(Constants.SELECTORS.btnAudioPlay)) {
+                    else if (this.getAudioButton(msgNode)) {
                         content = "Mensagem de voz";
                     }
 
@@ -119,7 +144,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "7.17.0"; } 
+        static get VERSION() { return "7.18.0"; } 
 
         static get SELECTORS() {
             return {
@@ -435,11 +460,16 @@
                     }
                 }
 
-                const audioPlay = msg.querySelector(Constants.SELECTORS.btnAudioPlay);
-                if (audioPlay) {
-                    const btn = audioPlay.tagName === 'BUTTON' ? audioPlay : audioPlay.closest('button');
-                    if (btn && !btn.getAttribute('aria-label')) {
-                        btn.setAttribute('aria-label', "Reproduzir");
+                const audioBtn = DOMUtils.getAudioButton(msg);
+                if (audioBtn) {
+                    const currentLabel = audioBtn.getAttribute('aria-label');
+                    // Verifica se é play ou pause pelo título do SVG interno
+                    const svgTitle = audioBtn.querySelector('svg title')?.textContent.toLowerCase() || "";
+                    const isPause = svgTitle.includes('pause');
+                    const targetLabel = isPause ? "Pausar áudio" : "Reproduzir áudio";
+
+                    if (!currentLabel || currentLabel === "Imagem sem descrição" || currentLabel.includes("Play") || currentLabel.includes("Reproduzir")) {
+                         audioBtn.setAttribute('aria-label', targetLabel);
                     }
                 }
                 
@@ -659,15 +689,11 @@
                     // Verifica se o elemento focado é uma mensagem (in ou out)
                     if (active && (active.classList.contains('message-in') || active.classList.contains('message-out'))) {
                         // Tenta achar o botão de play/pause dentro dessa mensagem
-                        const playBtn = active.querySelector(Constants.SELECTORS.btnAudioPlay);
+                        const playBtn = DOMUtils.getAudioButton(active);
                         if (playBtn) {
                             e.preventDefault();
-                            // Clica no botão (ou no button pai mais próximo caso o seletor tenha pegado um elemento interno)
-                            const clickable = playBtn.tagName === 'BUTTON' ? playBtn : playBtn.closest('button');
-                            if (clickable) {
-                                clickable.click();
-                                return;
-                            }
+                            playBtn.click();
+                            return;
                         }
                     }
                 }
