@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      7.16.0
+// @version      7.17.0
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -96,10 +96,9 @@
                         content = (alt && alt.length > 0) ? "Imagem: " + alt : "Imagem sem descrição";
                     }
 
-                    // 4. Voz
-                    else if (msgNode.querySelector('button span[data-icon="audio-play"]') || 
-                             msgNode.querySelector('span[data-icon="audio-play"]')) {
-                        content = "Reproduzir";
+                    // 4. Voz (Botão de Play ou Pause)
+                    else if (msgNode.querySelector(Constants.SELECTORS.btnAudioPlay)) {
+                        content = "Mensagem de voz";
                     }
 
                     // 5. Fallback Geral
@@ -120,8 +119,8 @@
     }
 
     class Constants {
-        static get VERSION() { return "7.16.0"; } 
-        
+        static get VERSION() { return "7.17.0"; } 
+
         static get SELECTORS() {
             return {
                 app: '#app',
@@ -137,7 +136,7 @@
                 btnSend: '[data-icon="send"]',
                 btnAttach: '[data-icon="plus"]',
                 btnMic: '[data-icon="mic-outlined"]',
-                btnAudioPlay: 'button span[data-icon="audio-play"]'
+                btnAudioPlay: 'button[aria-label*="Reproduzir"], button[aria-label*="Pausar"], button[aria-label*="Play"], button[aria-label*="Pause"], [data-icon="audio-play"], [data-icon="audio-pause"]'
             };
         }
 
@@ -438,8 +437,10 @@
 
                 const audioPlay = msg.querySelector(Constants.SELECTORS.btnAudioPlay);
                 if (audioPlay) {
-                    const btn = audioPlay.closest('button');
-                    if (btn) btn.setAttribute('aria-label', "Reproduzir");
+                    const btn = audioPlay.tagName === 'BUTTON' ? audioPlay : audioPlay.closest('button');
+                    if (btn && !btn.getAttribute('aria-label')) {
+                        btn.setAttribute('aria-label', "Reproduzir");
+                    }
                 }
                 
                 msg.dataset.wppA11yProcessed = "true";
@@ -588,6 +589,45 @@
 
         _setupKeyboard() {
             document.addEventListener('keydown', (e) => {
+                // Intercepta CTRL + C em mensagens
+                if (e.ctrlKey && e.code === 'KeyC' && this.state.activated) {
+                    const active = document.activeElement;
+                    const msgNode = active.closest('.message-in, .message-out');
+                    
+                    if (msgNode) {
+                        e.preventDefault();
+                        
+                        // Tenta pegar o texto selecionado primeiro (comportamento padrão)
+                        const selection = window.getSelection().toString();
+                        if (selection) {
+                            navigator.clipboard.writeText(selection);
+                            this.toast.show("Texto selecionado copiado");
+                            return;
+                        }
+
+                        // Se não houver seleção, pega o conteúdo da mensagem
+                        const textNode = msgNode.querySelector('[data-testid="selectable-text"]') || 
+                                         msgNode.querySelector('.copyable-text span');
+                        
+                        const imgNode = msgNode.querySelector('img[src^="blob:"], img[src^="http"]');
+
+                        if (textNode) {
+                            const text = textNode.innerText;
+                            navigator.clipboard.writeText(text).then(() => {
+                                this.toast.show("Texto da mensagem copiado");
+                            });
+                        } else if (imgNode) {
+                            const imgUrl = imgNode.src;
+                            // Para imagens, copiamos a URL. Copiar o blob binário diretamente 
+                            // de um canvas/blob cross-origin pode ser restritivo no navegador.
+                            navigator.clipboard.writeText(imgUrl).then(() => {
+                                this.toast.show("Link da imagem copiado");
+                            });
+                        }
+                        return;
+                    }
+                }
+
                 // Intercepta a tecla APPLICATIONS (ContextMenu) para abrir opções da mensagem
                 if (e.key === 'ContextMenu' && this.state.activated) {
                     const active = document.activeElement;
@@ -618,14 +658,16 @@
                     const active = document.activeElement;
                     // Verifica se o elemento focado é uma mensagem (in ou out)
                     if (active && (active.classList.contains('message-in') || active.classList.contains('message-out'))) {
-                        // Tenta achar o botão de play dentro dessa mensagem
-                        const playBtn = active.querySelector('button span[data-icon="audio-play"]');
+                        // Tenta achar o botão de play/pause dentro dessa mensagem
+                        const playBtn = active.querySelector(Constants.SELECTORS.btnAudioPlay);
                         if (playBtn) {
                             e.preventDefault();
-                            // Clica no botão (o span geralmente está dentro do button, pegamos o button pai)
-                            const clickable = playBtn.closest('button');
-                            if (clickable) clickable.click();
-                            return;
+                            // Clica no botão (ou no button pai mais próximo caso o seletor tenha pegado um elemento interno)
+                            const clickable = playBtn.tagName === 'BUTTON' ? playBtn : playBtn.closest('button');
+                            if (clickable) {
+                                clickable.click();
+                                return;
+                            }
                         }
                     }
                 }
