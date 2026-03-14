@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      7.18.0
+// @version      7.19.0
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -144,7 +144,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "7.18.0"; } 
+        static get VERSION() { return "7.19.0"; } 
 
         static get SELECTORS() {
             return {
