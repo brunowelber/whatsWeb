@@ -144,7 +144,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "7.20.0"; } 
+        static get VERSION() { return "7.21.0"; } 
 
         static get SELECTORS() {
             return {
@@ -162,7 +162,7 @@
                 btnAttach: '[data-icon="plus"]',
                 btnMic: '[data-icon="mic-outlined"]',
                 btnAudioPlay: 'button[aria-label*="Reproduzir"], button[aria-label*="Pausar"], button[aria-label*="Play"], button[aria-label*="Pause"], [data-icon="audio-play"], [data-icon="audio-pause"]',
-                filterButtons: 'button[role="radio"], button[aria-label="Tudo"], button[aria-label="Não lidas"], button[aria-label="Grupos"], button[aria-label="Contatos"]'
+                filterButtons: '[role="tablist"][aria-label="chat-list-filters"] [role="tab"], [role="tablist"][aria-label="Filtros da lista de conversas"] [role="tab"]'
             };
         }
 
@@ -397,7 +397,8 @@
                 
                 if (filter) {
                     filter.click();
-                    const label = filter.getAttribute('aria-label') || filter.innerText || "Filtro " + (targetIndex + 1);
+                    const span = filter.querySelector('span');
+                    const label = (span ? span.innerText : null) || filter.getAttribute('aria-label') || filter.innerText || "Filtro " + (targetIndex + 1);
                     this.toast.show("Filtro: " + label);
                 }
             } else {
