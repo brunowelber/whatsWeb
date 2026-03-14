@@ -648,11 +648,7 @@
                             });
                         } else if (imgNode) {
                             const imgUrl = imgNode.src;
-                            // Para imagens, copiamos a URL. Copiar o blob binário diretamente 
-                            // de um canvas/blob cross-origin pode ser restritivo no navegador.
-                            navigator.clipboard.writeText(imgUrl).then(() => {
-                                this.toast.show("Link da imagem copiado");
-                            });
+                            this._copyImageAsBinary(imgUrl);
                         }
                         return;
                     }
@@ -709,6 +705,53 @@
                 if (e.altKey && e.code === Constants.SHORTCUTS.READ_STATUS) { e.preventDefault(); this.navigator.readChatStatus(); }
                 if (e.altKey && e.code === Constants.SHORTCUTS.ATTACH_MENU) { e.preventDefault(); this.navigator.openAttachMenu(); }
                 if (e.altKey && e.code === Constants.SHORTCUTS.TOGGLE_MONITOR) { e.preventDefault(); this.statusMonitor.toggle(); }
+            });
+        }
+
+        async _copyImageAsBinary(imgUrl) {
+            this.toast.show("Processando imagem...");
+            try {
+                const response = await fetch(imgUrl);
+                const blob = await response.blob();
+                
+                // Para garantir que a imagem possa ser colada em qualquer lugar (Word, Paint, etc),
+                // o ideal é converter para PNG, que é o formato mais aceito pela Clipboard API.
+                let blobToCopy = blob;
+                if (blob.type !== 'image/png') {
+                    blobToCopy = await this._convertToPng(blob);
+                }
+
+                const data = [new ClipboardItem({ [blobToCopy.type]: blobToCopy })];
+                await navigator.clipboard.write(data);
+                this.toast.show("Imagem copiada!");
+            } catch (err) {
+                Logger.error("Falha ao copiar imagem binária", err);
+                // Fallback para o link se algo der errado (ex: restrição do navegador)
+                navigator.clipboard.writeText(imgUrl);
+                this.toast.show("Erro ao copiar imagem, link copiado");
+            }
+        }
+
+        _convertToPng(blob) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    canvas.toBlob((pngBlob) => {
+                        if (pngBlob) resolve(pngBlob);
+                        else reject(new Error("Falha na conversão para PNG"));
+                    }, 'image/png');
+                    URL.revokeObjectURL(img.src);
+                };
+                img.onerror = (e) => {
+                    URL.revokeObjectURL(img.src);
+                    reject(e);
+                };
+                img.src = URL.createObjectURL(blob);
             });
         }
 
