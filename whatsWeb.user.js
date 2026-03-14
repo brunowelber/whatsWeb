@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      7.19.0
+// @version      7.20.0
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -144,7 +144,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "7.19.0"; } 
+        static get VERSION() { return "7.20.0"; } 
 
         static get SELECTORS() {
             return {
@@ -161,7 +161,8 @@
                 btnSend: '[data-icon="send"]',
                 btnAttach: '[data-icon="plus"]',
                 btnMic: '[data-icon="mic-outlined"]',
-                btnAudioPlay: 'button[aria-label*="Reproduzir"], button[aria-label*="Pausar"], button[aria-label*="Play"], button[aria-label*="Pause"], [data-icon="audio-play"], [data-icon="audio-pause"]'
+                btnAudioPlay: 'button[aria-label*="Reproduzir"], button[aria-label*="Pausar"], button[aria-label*="Play"], button[aria-label*="Pause"], [data-icon="audio-play"], [data-icon="audio-pause"]',
+                filterButtons: 'button[role="radio"], button[aria-label="Tudo"], button[aria-label="Não lidas"], button[aria-label="Grupos"], button[aria-label="Contatos"]'
             };
         }
 
@@ -172,7 +173,11 @@
                 FOCUS_MSG_LIST: 'Digit2',  
                 READ_STATUS: 'KeyV',
                 ATTACH_MENU: 'KeyA',
-                TOGGLE_MONITOR: 'KeyO'        
+                TOGGLE_MONITOR: 'KeyO',
+                FILTER_ALL: 'Digit1',
+                FILTER_UNREAD: 'Digit2',
+                FILTER_GROUPS: 'Digit3',
+                FILTER_CONTACTS: 'Digit4'
             };
         }
     }
@@ -381,6 +386,22 @@
                         lastItem.focus();
                     }
                 }, 400); // Delay para animação do menu
+            }
+        }
+
+        selectChatFilter(index) {
+            const filters = document.querySelectorAll(Constants.SELECTORS.filterButtons);
+            if (filters.length > 0) {
+                const targetIndex = Math.min(index, filters.length - 1);
+                const filter = filters[targetIndex];
+                
+                if (filter) {
+                    filter.click();
+                    const label = filter.getAttribute('aria-label') || filter.innerText || "Filtro " + (targetIndex + 1);
+                    this.toast.show("Filtro: " + label);
+                }
+            } else {
+                this.toast.show("Filtros não encontrados");
             }
         }
     }
@@ -705,6 +726,14 @@
                 if (e.altKey && e.code === Constants.SHORTCUTS.READ_STATUS) { e.preventDefault(); this.navigator.readChatStatus(); }
                 if (e.altKey && e.code === Constants.SHORTCUTS.ATTACH_MENU) { e.preventDefault(); this.navigator.openAttachMenu(); }
                 if (e.altKey && e.code === Constants.SHORTCUTS.TOGGLE_MONITOR) { e.preventDefault(); this.statusMonitor.toggle(); }
+
+                // Atalhos para Filtros de Conversa (Ctrl + Shift + 1, 2, 3, 4)
+                if (e.ctrlKey && e.shiftKey && this.state.activated) {
+                    if (e.code === Constants.SHORTCUTS.FILTER_ALL) { e.preventDefault(); this.navigator.selectChatFilter(0); }
+                    if (e.code === Constants.SHORTCUTS.FILTER_UNREAD) { e.preventDefault(); this.navigator.selectChatFilter(1); }
+                    if (e.code === Constants.SHORTCUTS.FILTER_GROUPS) { e.preventDefault(); this.navigator.selectChatFilter(2); }
+                    if (e.code === Constants.SHORTCUTS.FILTER_CONTACTS) { e.preventDefault(); this.navigator.selectChatFilter(3); }
+                }
             });
         }
 
