@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      7.20.0
+// @version      7.21.2
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -41,6 +41,38 @@
                 const el = base.querySelector(selector);
                 if (el) return el;
             }
+            return null;
+        }
+
+        static getMessageImageNode(msgNode) {
+            if (!msgNode) return null;
+
+            const preferredSelectors = [
+                'button[aria-label^="Imagem"] img[src]',
+                'button[aria-label^="Foto"] img[src]',
+                '[data-testid="sticker-container"] img[src]',
+                '[data-testid="image"] img[src]'
+            ];
+
+            for (const selector of preferredSelectors) {
+                const img = msgNode.querySelector(selector);
+                if (img) return img;
+            }
+
+            const images = msgNode.querySelectorAll('img[src]');
+            for (const img of images) {
+                const src = img.getAttribute('src') || '';
+                const cls = (img.className || '').toString();
+                const mediaHost = img.closest('button[aria-label], [role="button"][aria-label], [data-testid="sticker-container"]');
+
+                // Ignora emojis e ícones inline; aqui queremos só mídia real da mensagem.
+                if (!src || src.startsWith('data:image/')) continue;
+                if (cls.includes('emoji')) continue;
+                if (!mediaHost) continue;
+
+                return img;
+            }
+
             return null;
         }
 
@@ -102,35 +134,39 @@
                     isContact = true;
                 }
 
-                // 1. Texto padrão
+                // 1. Mídia da mensagem
                 else {
-                    const textNode = msgNode.querySelector('[data-testid="selectable-text"]') || 
-                                     msgNode.querySelector('.copyable-text span') ||
-                                     msgNode.querySelector('.copyable-text');
-                    
-                    if (textNode) content = textNode.innerText;
+                    const mediaNode = this.getMessageImageNode(msgNode);
+                    if (mediaNode) {
+                        const mediaHost = mediaNode.closest('button[aria-label], [role="button"][aria-label], [data-testid="sticker-container"]');
+                        const mediaLabel = mediaHost?.getAttribute('aria-label') || mediaNode.getAttribute('alt') || '';
+                        content = mediaLabel ? mediaLabel : "Imagem sem descrição";
+                    }
 
                     // 2. Mensagens do Sistema
                     else if (msgNode.querySelector('._akbu')) {
                         content = msgNode.querySelector('._akbu').innerText;
                     }
 
-                    // 3. Imagem
-                    else if (msgNode.querySelector('img[alt]')) {
-                        const alt = msgNode.querySelector('img[alt]').getAttribute('alt');
-                        content = (alt && alt.length > 0) ? "Imagem: " + alt : "Imagem sem descrição";
-                    }
-
-                    // 4. Voz (Botão de Play ou Pause)
-                    else if (this.getAudioButton(msgNode)) {
-                        content = "Mensagem de voz";
-                    }
-
-                    // 5. Fallback Geral
+                    // 3. Texto padrão
                     else {
-                        const rawText = msgNode.innerText;
-                        if (rawText && rawText.length > 0) {
-                            content = rawText.replace(/\d{1,2}:\d{2}\s*$/, ''); // Tenta remover hora do fim
+                        const textNode = msgNode.querySelector('[data-testid="selectable-text"]') || 
+                                         msgNode.querySelector('.copyable-text span') ||
+                                         msgNode.querySelector('.copyable-text');
+                        
+                        if (textNode) content = textNode.innerText;
+
+                        // 4. Voz (Botão de Play ou Pause)
+                        else if (this.getAudioButton(msgNode)) {
+                            content = "Mensagem de voz";
+                        }
+
+                        // 5. Fallback Geral
+                        else {
+                            const rawText = msgNode.innerText;
+                            if (rawText && rawText.length > 0) {
+                                content = rawText.replace(/\d{1,2}:\d{2}\s*$/, ''); // Tenta remover hora do fim
+                            }
                         }
                     }
                 }
@@ -144,7 +180,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "7.21.0"; } 
+        static get VERSION() { return "7.21.2"; } 
 
         static get SELECTORS() {
             return {
@@ -657,20 +693,28 @@
                             return;
                         }
 
-                        // Se não houver seleção, pega o conteúdo da mensagem
+                        // Sem seleção explícita, prioriza a mídia da mensagem quando existir.
+                        const imgNode = DOMUtils.getMessageImageNode(msgNode);
+                        if (imgNode) {
+                            this._copyImageAsBinary(imgNode.src);
+                            return;
+                        }
+
                         const textNode = msgNode.querySelector('[data-testid="selectable-text"]') || 
-                                         msgNode.querySelector('.copyable-text span');
-                        
-                        const imgNode = msgNode.querySelector('img[src^="blob:"], img[src^="http"]');
+                                         msgNode.querySelector('.copyable-text span') ||
+                                         msgNode.querySelector('.copyable-text');
 
                         if (textNode) {
                             const text = textNode.innerText;
                             navigator.clipboard.writeText(text).then(() => {
                                 this.toast.show("Texto da mensagem copiado");
                             });
-                        } else if (imgNode) {
-                            const imgUrl = imgNode.src;
-                            this._copyImageAsBinary(imgUrl);
+                            return;
+                        }
+
+                        const fallbackImg = msgNode.querySelector('img[src^="blob:"], img[src^="http"]');
+                        if (fallbackImg) {
+                            this._copyImageAsBinary(fallbackImg.src);
                         }
                         return;
                     }
