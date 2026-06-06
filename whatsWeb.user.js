@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      8.0.0
+// @version      8.0.1
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -156,10 +156,7 @@
         }
 
         static getSearchInput() {
-            const side = document.querySelector(Constants.SELECTORS.sidePanel);
-            if (!side) return null;
-
-            return this.findFirst(side, Constants.SELECTORS.searchFields);
+            return this.findFirst(document, Constants.SELECTORS.searchFields);
         }
 
         static getFirstUnreadMarker(main = document.querySelector(Constants.SELECTORS.mainPanel)) {
@@ -174,7 +171,27 @@
         }
 
         static getMessageFocusTarget(msgNode) {
-            return msgNode ? (msgNode.closest('[role="row"]') || msgNode) : null;
+            if (!msgNode) return null;
+
+            const messageRoot = msgNode.matches?.('.message-in, .message-out')
+                ? msgNode
+                : msgNode.querySelector?.('.message-in, .message-out') ||
+                    msgNode.closest?.('.message-in, .message-out') ||
+                    msgNode.querySelector?.('[data-testid^="conv-msg-"]') ||
+                    msgNode.closest?.('[data-testid^="conv-msg-"]') ||
+                    null;
+
+            return messageRoot || msgNode;
+        }
+
+        static getConversationFocusTarget(row) {
+            if (!row) return null;
+
+            return row.querySelector('[role="gridcell"][tabindex="0"]') ||
+                row.querySelector('[role="gridcell"]') ||
+                row.querySelector('[aria-selected="true"]') ||
+                row.querySelector('[tabindex="0"]') ||
+                row;
         }
 
         static getFocusedMessageNode(activeElement) {
@@ -416,7 +433,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "8.0.0"; } 
+        static get VERSION() { return "8.0.1"; } 
 
         static get SELECTORS() {
             return {
@@ -434,7 +451,18 @@
                 btnAttach: '[data-icon="plus-rounded"], [aria-label="Anexar"]',
                 btnMic: '[data-icon="mic-outlined"]',
                 btnAudioPlay: 'button[aria-label*="Reproduzir"], button[aria-label*="Pausar"], button[aria-label*="Play"], button[aria-label*="Pause"], [data-icon="audio-play"], [data-icon="audio-pause"]',
-                searchFields: ['#pane-side [data-testid="chat-list-search"]', '#pane-side [aria-label*="Pesquisar"]', '#pane-side [aria-label*="Search"]', '#pane-side [contenteditable="true"]'],
+                searchFields: [
+                    '[data-testid="chat-list-search-container"] input[role="textbox"]',
+                    '[data-testid="chat-list-search-container"] [role="textbox"]',
+                    '[data-testid="chat-list-search-container"] input',
+                    'input[aria-label*="Pesquisar ou começar uma nova conversa"]',
+                    'input[aria-label*="Pesquisar"]',
+                    'input[aria-label*="Search"]',
+                    '#pane-side [role="textbox"][aria-label*="Pesquisar"]',
+                    '#pane-side [role="textbox"][aria-label*="Search"]',
+                    '#pane-side [contenteditable="true"]',
+                    '[contenteditable="true"][aria-label*="Pesquisar"]'
+                ],
                 filterButtons: '[role="tablist"][aria-label="chat-list-filters"] [role="tab"], [role="tablist"][aria-label="Filtros da lista de conversas"] [role="tab"]'
             };
         }
@@ -448,7 +476,6 @@
                 FOCUS_RELEVANT_MESSAGE: 'Digit4',
                 FOCUS_SEARCH: 'KeyF',
                 READ_STATUS: 'KeyV',
-                ATTACH_MENU: 'KeyA',
                 TOGGLE_MONITOR: 'KeyO',
                 HELP: 'KeyH',
                 FILTER_ALL: 'Digit1',
@@ -589,7 +616,6 @@
                             <div><dt>Alt+4</dt><dd>Mensagem relevante</dd></div>
                             <div><dt>Alt+F</dt><dd>Busca de conversas</dd></div>
                             <div><dt>Alt+V</dt><dd>Status da conversa</dd></div>
-                            <div><dt>Alt+A</dt><dd>Menu anexar</dd></div>
                             <div><dt>Alt+O</dt><dd>Monitor de status</dd></div>
                             <div><dt>Alt+H</dt><dd>Ajuda</dd></div>
                             <div><dt>Alt+?</dt><dd>Ajuda</dd></div>
@@ -702,8 +728,10 @@
             }
 
             target.scrollIntoView({ block: 'center', inline: 'nearest' });
-            const focusTarget = target.querySelector('[aria-selected="true"]') || target.querySelector('[role="gridcell"]') || target;
-            focusTarget.setAttribute('tabindex', '0');
+            const focusTarget = DOMUtils.getConversationFocusTarget(target);
+            if (!focusTarget.hasAttribute('tabindex')) {
+                focusTarget.setAttribute('tabindex', '0');
+            }
             focusTarget.focus();
             this.toast.show("Lista de conversas");
         }
@@ -925,12 +953,15 @@
                 const content = DOMUtils.getMessageContent(msg);
                 
                 if (content) {
-                    // Tenta encontrar o elemento focável exato (onde o NVDA para com Alt+2 ou Tab)
-                    const focusable = msg.querySelector('[tabindex="0"]') || msg;
+                    // Prioriza o root da mensagem para o foco e leitura assistida.
+                    const focusable = DOMUtils.getMessageFocusTarget(msg);
                     const directionLabel = DOMUtils.getMessageDirectionLabel(msg);
                     const announcementLabel = directionLabel + content;
                     
                     // FORÇA a aplicação do label, sobrescrevendo qualquer anterior para garantir consistência
+                    if (!focusable.hasAttribute('tabindex')) {
+                        focusable.setAttribute('tabindex', '-1');
+                    }
                     focusable.setAttribute('aria-label', announcementLabel);
                     
                     // Se for Cartão de Contato, define role="article" para evitar que o NVDA
@@ -1321,7 +1352,6 @@
                 if (e.altKey && e.code === Constants.SHORTCUTS.FOCUS_RELEVANT_MESSAGE) { e.preventDefault(); this.navigator.focusRelevantMessage(); }
                 if (e.altKey && e.code === Constants.SHORTCUTS.FOCUS_SEARCH) { e.preventDefault(); this.navigator.focusChatSearch(); }
                 if (e.altKey && e.code === Constants.SHORTCUTS.READ_STATUS) { e.preventDefault(); this.navigator.readChatStatus(); }
-                if (e.altKey && e.code === Constants.SHORTCUTS.ATTACH_MENU) { e.preventDefault(); this.navigator.openAttachMenu(); }
                 if (e.altKey && e.code === Constants.SHORTCUTS.TOGGLE_MONITOR) { e.preventDefault(); this.statusMonitor.toggle(); }
                 if (isHelpShortcut) { e.preventDefault(); this.helpDialog.toggle(e.target); }
 
