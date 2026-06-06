@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      8.0.1
+// @version      8.0.2
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -187,9 +187,15 @@
         static getConversationFocusTarget(row) {
             if (!row) return null;
 
+            const selectedItem = row.querySelector('[aria-selected="true"][tabindex="0"]') ||
+                row.querySelector('[aria-selected="true"]');
+
+            if (selectedItem) {
+                return selectedItem;
+            }
+
             return row.querySelector('[role="gridcell"][tabindex="0"]') ||
                 row.querySelector('[role="gridcell"]') ||
-                row.querySelector('[aria-selected="true"]') ||
                 row.querySelector('[tabindex="0"]') ||
                 row;
         }
@@ -433,7 +439,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "8.0.1"; } 
+        static get VERSION() { return "8.0.2"; } 
 
         static get SELECTORS() {
             return {
@@ -603,7 +609,7 @@
                     <div class="wpp-a11y-help-header">
                         <div>
                             <h2 id="wpp-a11y-help-title">Atalhos ativos</h2>
-                            <p id="wpp-a11y-help-desc">Navegação rápida e ajuda contextual.</p>
+                            <p id="wpp-a11y-help-desc">Acessibilidade ativada. Alt+H para ajuda.</p>
                         </div>
                         <button value="cancel" class="wpp-a11y-help-close" aria-label="Fechar ajuda">Fechar</button>
                     </div>
