@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      8.0.2
+// @version      8.0.3
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -187,15 +187,10 @@
         static getConversationFocusTarget(row) {
             if (!row) return null;
 
-            const selectedItem = row.querySelector('[aria-selected="true"][tabindex="0"]') ||
-                row.querySelector('[aria-selected="true"]');
-
-            if (selectedItem) {
-                return selectedItem;
-            }
-
             return row.querySelector('[role="gridcell"][tabindex="0"]') ||
                 row.querySelector('[role="gridcell"]') ||
+                row.querySelector('[aria-selected="true"][tabindex="0"]') ||
+                row.querySelector('[aria-selected="true"]') ||
                 row.querySelector('[tabindex="0"]') ||
                 row;
         }
@@ -592,6 +587,7 @@
             this.dialog = null;
             this.content = null;
             this.closeButton = null;
+            this.statusNode = null;
             this.lastFocus = null;
             this._createDOM();
         }
@@ -602,14 +598,15 @@
             this.dialog = document.createElement('dialog');
             this.dialog.id = 'wpp-a11y-help-dialog';
             this.dialog.setAttribute('aria-labelledby', 'wpp-a11y-help-title');
-            this.dialog.setAttribute('aria-describedby', 'wpp-a11y-help-desc');
+            this.dialog.setAttribute('aria-describedby', 'wpp-a11y-help-desc wpp-a11y-help-hint');
 
             this.dialog.innerHTML = `
                 <form method="dialog" class="wpp-a11y-help-shell">
                     <div class="wpp-a11y-help-header">
                         <div>
                             <h2 id="wpp-a11y-help-title">Atalhos ativos</h2>
-                            <p id="wpp-a11y-help-desc">Acessibilidade ativada. Alt+H para ajuda.</p>
+                            <p id="wpp-a11y-help-desc">Acessibilidade ativada.</p>
+                            <p id="wpp-a11y-help-hint">Alt+H para ajuda.</p>
                         </div>
                         <button value="cancel" class="wpp-a11y-help-close" aria-label="Fechar ajuda">Fechar</button>
                     </div>
@@ -628,10 +625,12 @@
                             <div><dt>Ctrl+Shift+1-4</dt><dd>Filtros da lista</dd></div>
                         </dl>
                     </div>
+                    <div id="wpp-a11y-help-live" class="sr-only-refined" aria-live="assertive"></div>
                 </form>
             `;
 
             document.body.appendChild(this.dialog);
+            this.statusNode = this.dialog.querySelector('#wpp-a11y-help-live');
             this.dialog.addEventListener('cancel', (event) => {
                 event.preventDefault();
                 this.close();
@@ -663,6 +662,13 @@
                 closeButton.focus();
             } else {
                 this.dialog.focus();
+            }
+
+            if (this.statusNode) {
+                this.statusNode.textContent = '';
+                setTimeout(() => {
+                    this.statusNode.textContent = 'Acessibilidade ativada. Alt+H para ajuda.';
+                }, 50);
             }
         }
 
