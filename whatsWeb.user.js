@@ -187,15 +187,15 @@
                 app: '#app',
                 mainPanel: '#main',
                 sidePanel: '#pane-side',
-                headerTitle: '#main header [dir="auto"]', 
-                messageList: ['[class*="message-in"]', '[class*="message-out"]'],
+                headerTitle: '#main [data-testid="conversation-info-header-chat-title"]',
+                messageList: ['#main [data-testid^="conv-msg-"]', '#main [class*="message-in"]', '#main [class*="message-out"]'],
                 messageInClass: 'message-in',
                 messageOutClass: 'message-out',
                 messageContainer: '#main [role="application"]', 
                 footer: 'footer',
                 footerInput: 'footer [contenteditable="true"]',
                 btnSend: '[data-icon="send"]',
-                btnAttach: '[data-icon="plus"]',
+                btnAttach: '[data-icon="plus-rounded"], [aria-label="Anexar"]',
                 btnMic: '[data-icon="mic-outlined"]',
                 btnAudioPlay: 'button[aria-label*="Reproduzir"], button[aria-label*="Pausar"], button[aria-label*="Play"], button[aria-label*="Pause"], [data-icon="audio-play"], [data-icon="audio-pause"]',
                 filterButtons: '[role="tablist"][aria-label="chat-list-filters"] [role="tab"], [role="tablist"][aria-label="Filtros da lista de conversas"] [role="tab"]'
@@ -321,20 +321,34 @@
         focusChatList() {
             const side = document.querySelector(Constants.SELECTORS.sidePanel);
             if (!side) return;
-            
-            // Lógica Simplificada: Foca no que estiver selecionado ou no primeiro item
-            let target = side.querySelector('[aria-selected="true"]');
-            
-            // Ajuste para pegar a row, caso o foco esteja interno
-            if (target) target = target.closest('[role="row"]') || target;
-            
-            // Fallback para o primeiro item
-            if (!target) target = side.querySelector('[role="row"]');
+
+            const chatList = side.querySelector('[data-testid="chat-list"], [role="grid"][aria-label="Lista de conversas"], [aria-label="Lista de conversas"]') || side;
+            const activeChatTitle = document.querySelector(Constants.SELECTORS.headerTitle)?.innerText.trim() || '';
+
+            // Foca a conversa selecionada ou, na falta dela, a primeira linha visível.
+            let target = chatList.querySelector('[aria-selected="true"]');
+
+            if (target) {
+                target = target.closest('[role="row"][data-testid^="list-item-"]') ||
+                    target.closest('[role="row"]') ||
+                    target.closest('[data-testid^="list-item-"]') ||
+                    target;
+            }
+
+            if (!target && activeChatTitle) {
+                const rows = chatList.querySelectorAll('[role="row"][data-testid^="list-item-"]');
+                target = Array.from(rows).find((row) => row.innerText.includes(activeChatTitle)) || null;
+            }
+
+            if (!target) {
+                target = chatList.querySelector('[role="row"][data-testid^="list-item-"]') || chatList.querySelector('[role="row"]');
+            }
 
             if (target) {
                 target.scrollIntoView({block: 'center', inline: 'nearest'});
-                target.setAttribute('tabindex', '0'); // Garante que é focável
-                target.focus();
+                const focusTarget = target.querySelector('[aria-selected="true"]') || target.querySelector('[role="gridcell"]') || target;
+                focusTarget.setAttribute('tabindex', '0'); // Garante que é focável
+                focusTarget.focus();
                 this.toast.show("Lista de conversas");
             } else {
                 // Fallback final: foca no painel lateral em si
@@ -363,11 +377,12 @@
         }
         
         _focusMessageListContainer() {
-            const messages = document.querySelectorAll(Constants.SELECTORS.messageList[0] + ', ' + Constants.SELECTORS.messageList[1]);
+            const messages = document.querySelectorAll(Constants.SELECTORS.messageList.join(', '));
             if (messages.length > 0) {
                 const lastMsg = messages[messages.length - 1];
-                if (!lastMsg.hasAttribute('tabindex')) lastMsg.setAttribute('tabindex', '-1');
-                lastMsg.focus();
+                const focusTarget = lastMsg.closest('[role="row"]') || lastMsg;
+                if (!focusTarget.hasAttribute('tabindex')) focusTarget.setAttribute('tabindex', '-1');
+                focusTarget.focus();
                 this.toast.show("Lista de mensagens");
             }
         }
@@ -378,7 +393,7 @@
                 this.toast.show("Nenhuma conversa aberta");
                 return;
             }
-            const titleEl = header.querySelector('[dir="auto"]');
+            const titleEl = header.querySelector(Constants.SELECTORS.headerTitle);
             if (titleEl) {
                 const fullText = header.innerText;
                 const contactName = titleEl.innerText;
@@ -583,9 +598,9 @@
             if (!this.currentHeader) return;
 
             // Tenta achar o elemento de texto do status (geralmente abaixo do título)
-            // O título tem dir="auto", o status geralmente é um span irmão ou filho próximo
+            // O título vem do bloco do header da conversa; o status costuma estar logo abaixo.
             // Estratégia: Pegar todo o texto do header e remover o título do contato
-            const titleEl = this.currentHeader.querySelector('[dir="auto"]');
+            const titleEl = this.currentHeader.querySelector(Constants.SELECTORS.headerTitle);
             if (!titleEl) return;
 
             const contactName = titleEl.innerText;
