@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      7.21.2
+// @version      7.22.0
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -44,19 +44,230 @@
             return null;
         }
 
+        static getHeaderElement() {
+            return document.querySelector('#main header') ||
+                document.querySelector('#main [data-testid="conversation-header"]') ||
+                null;
+        }
+
+        static getConversationTitle() {
+            const titleEl = document.querySelector(Constants.SELECTORS.headerTitle);
+            return titleEl ? titleEl.innerText.trim() : '';
+        }
+
+        static getConversationSubtitle() {
+            const header = this.getHeaderElement();
+            if (!header) return '';
+
+            const subtitleEl = header.querySelector('[data-testid="chat-subtitle"]');
+            return subtitleEl ? subtitleEl.innerText.trim() : '';
+        }
+
+        static getConversationStatus(header = this.getHeaderElement()) {
+            const title = this.getConversationTitle();
+            if (!header || !title) return '';
+
+            let statusText = header.innerText.replace(title, '').replace(/[\n\r]+/g, ' ').trim();
+            statusText = statusText.replace(/video-call|voice-call|search/gi, '').trim();
+            return statusText.length > 1 ? statusText : '';
+        }
+
+        static getRelevantConversationStatus(header = this.getHeaderElement()) {
+            const statusText = this.getConversationStatus(header);
+            if (!statusText) return '';
+
+            const lower = statusText.toLowerCase();
+            if (lower.includes('online') || lower.includes('digitando') || lower.includes('gravando') || lower.includes('visto')) {
+                return statusText;
+            }
+
+            return '';
+        }
+
+        static isGroupConversation() {
+            const subtitle = this.getConversationSubtitle();
+            return Boolean(subtitle && /,| e mais |participante|membro/i.test(subtitle));
+        }
+
+        static getChatListContainer() {
+            const side = document.querySelector(Constants.SELECTORS.sidePanel);
+            if (!side) return null;
+
+            return side.querySelector('[data-testid="chat-list"], [role="grid"][aria-label="Lista de conversas"], [aria-label="Lista de conversas"]') || side;
+        }
+
+        static getActiveChatRow(title = this.getConversationTitle()) {
+            const chatList = this.getChatListContainer();
+            if (!chatList) return null;
+
+            let selected = chatList.querySelector('[aria-selected="true"]');
+            if (selected) {
+                return selected.closest('[role="row"][data-testid^="list-item-"]') ||
+                    selected.closest('[role="row"]') ||
+                    selected.closest('[data-testid^="list-item-"]') ||
+                    selected;
+            }
+
+            if (title) {
+                const rows = chatList.querySelectorAll('[role="row"][data-testid^="list-item-"]');
+                return Array.from(rows).find((row) => row.innerText.includes(title)) || null;
+            }
+
+            return null;
+        }
+
+        static getConversationUnreadCount(title = this.getConversationTitle()) {
+            const row = this.getActiveChatRow(title);
+            if (!row) return 0;
+
+            const unreadEl = row.querySelector('[data-testid="icon-unread-count"], [data-testid="unread-count"]');
+            if (!unreadEl) return 0;
+
+            const label = unreadEl.getAttribute('aria-label') || unreadEl.innerText || '';
+            const match = label.match(/(\d+)/);
+            return match ? Number(match[1]) : 0;
+        }
+
+        static getConversationSummary() {
+            const header = this.getHeaderElement();
+            const title = this.getConversationTitle();
+            if (!header || !title) return null;
+
+            const subtitle = this.getConversationSubtitle();
+            const status = this.getRelevantConversationStatus(header);
+            const kind = this.isGroupConversation() ? 'Grupo' : 'Contato';
+            const unread = this.getConversationUnreadCount(title);
+            const parts = [title, kind];
+
+            if (unread > 0) parts.push(`${unread} não lidas`);
+            if (subtitle && subtitle !== status) parts.push(subtitle);
+            if (status) parts.push(status);
+
+            return {
+                header,
+                title,
+                subtitle,
+                status,
+                kind,
+                unread,
+                signature: [title, kind, unread || 0, status || '', subtitle || ''].join('|'),
+                summary: parts.join(', ')
+            };
+        }
+
+        static getSearchInput() {
+            const side = document.querySelector(Constants.SELECTORS.sidePanel);
+            if (!side) return null;
+
+            return this.findFirst(side, Constants.SELECTORS.searchFields);
+        }
+
+        static getFirstUnreadMarker(main = document.querySelector(Constants.SELECTORS.mainPanel)) {
+            if (!main) return null;
+
+            return this.findFirst(main, [
+                '[data-testid*="unread"]',
+                '[aria-label*="não lidas"]',
+                '[aria-label*="nao lidas"]',
+                '[aria-label*="unread"]'
+            ]);
+        }
+
+        static getMessageFocusTarget(msgNode) {
+            return msgNode ? (msgNode.closest('[role="row"]') || msgNode) : null;
+        }
+
+        static getFocusedMessageNode(activeElement) {
+            if (!activeElement) return null;
+
+            const directMessage = activeElement.closest('.message-in, .message-out');
+            if (directMessage) return directMessage;
+
+            const row = activeElement.closest('[role="row"]');
+            if (!row) return null;
+
+            return row.querySelector('.message-in, .message-out') || row.querySelector('[data-testid^="conv-msg-"]') || null;
+        }
+
+        static getMessageDirectionLabel(msgNode) {
+            if (!msgNode) return '';
+            return msgNode.classList && msgNode.classList.contains(Constants.SELECTORS.messageOutClass) ? 'Enviada: ' : 'Recebida: ';
+        }
+
+        static getQuotedMessageText(msgNode) {
+            if (!msgNode) return '';
+
+            const quoted = msgNode.querySelector('[data-testid="quoted-message"]');
+            if (!quoted) return '';
+
+            const quotedTextEl = quoted.querySelector('[data-testid="selectable-text"][aria-label]') ||
+                quoted.querySelector('[data-testid="selectable-text"]') ||
+                quoted.querySelector('[role="button"][aria-label]') ||
+                quoted;
+
+            const quotedText = quotedTextEl.getAttribute ? (quotedTextEl.getAttribute('aria-label') || quotedTextEl.innerText || quotedTextEl.textContent || '') : (quotedTextEl.innerText || quotedTextEl.textContent || '');
+            return this.cleanText(quotedText);
+        }
+
+        static getMainMessageText(msgNode) {
+            if (!msgNode) return '';
+
+            const candidates = Array.from(msgNode.querySelectorAll('[data-testid="selectable-text"], .copyable-text span, .copyable-text'))
+                .filter((el) => !el.closest('[data-testid="quoted-message"]') && !el.closest('[data-testid="msg-meta"]') && !el.closest('[data-testid="author"]'));
+
+            if (candidates.length > 0) {
+                const last = candidates[candidates.length - 1];
+                const text = last.getAttribute ? (last.getAttribute('aria-label') || last.innerText || last.textContent || '') : (last.innerText || last.textContent || '');
+                if (text) return this.cleanText(text);
+            }
+
+            return '';
+        }
+
         static getMessageImageNode(msgNode) {
             if (!msgNode) return null;
 
             const preferredSelectors = [
+                '[data-testid="sticker-container"] [role="button"] img[src]',
+                '[data-testid="sticker-container"] [role="button"] canvas',
+                '[data-testid="sticker-container"] img[src]',
+                '[data-testid="sticker-container"] canvas',
                 'button[aria-label^="Imagem"] img[src]',
                 'button[aria-label^="Foto"] img[src]',
+                'button[aria-label*="Imagem"] img[src]',
+                'button[aria-label*="Foto"] img[src]',
+                '[role="button"][aria-label^="Imagem"] img[src]',
+                '[role="button"][aria-label^="Foto"] img[src]',
+                '[role="button"][aria-label*="Imagem"] img[src]',
+                '[role="button"][aria-label*="Foto"] img[src]',
                 '[data-testid="sticker-container"] img[src]',
                 '[data-testid="image"] img[src]'
             ];
 
             for (const selector of preferredSelectors) {
                 const img = msgNode.querySelector(selector);
-                if (img) return img;
+                if (img) return img.tagName === 'IMG' ? img : img.querySelector('img[src]') || img.closest('[data-testid="sticker-container"]')?.querySelector('img[src]') || null;
+            }
+
+            const mediaButtons = msgNode.querySelectorAll('button[aria-label], [role="button"][aria-label]');
+            for (const mediaButton of mediaButtons) {
+                const label = (mediaButton.getAttribute('aria-label') || '').trim();
+                const mediaLabel = label.toLowerCase();
+                if (!mediaLabel) continue;
+
+                if (mediaLabel.includes('imagem') || mediaLabel.includes('foto') || mediaLabel.includes('figurinha') || mediaLabel.includes('sticker')) {
+                    const img = mediaButton.querySelector('img[src]');
+                    if (img) return img;
+
+                    const canvasHost = mediaButton.querySelector('canvas');
+                    if (canvasHost) {
+                        const stickerHost = mediaButton.closest('[data-testid="sticker-container"]');
+                        if (stickerHost) {
+                            const stickerImg = stickerHost.querySelector('img[src]');
+                            if (stickerImg) return stickerImg;
+                        }
+                    }
+                }
             }
 
             const images = msgNode.querySelectorAll('img[src]');
@@ -71,6 +282,12 @@
                 if (!mediaHost) continue;
 
                 return img;
+            }
+
+            const stickerContainers = msgNode.querySelectorAll('[data-testid="sticker-container"]');
+            for (const stickerContainer of stickerContainers) {
+                const stickerImg = stickerContainer.querySelector('img[src]');
+                if (stickerImg) return stickerImg;
             }
 
             return null;
@@ -140,7 +357,20 @@
                     if (mediaNode) {
                         const mediaHost = mediaNode.closest('button[aria-label], [role="button"][aria-label], [data-testid="sticker-container"]');
                         const mediaLabel = mediaHost?.getAttribute('aria-label') || mediaNode.getAttribute('alt') || '';
-                        content = mediaLabel ? mediaLabel : "Imagem sem descrição";
+                        const stickerContainer = mediaNode.closest('[data-testid="sticker-container"]');
+                        if (stickerContainer) {
+                            if (mediaLabel && /^imagem/i.test(mediaLabel)) {
+                                content = mediaLabel.replace(/^Imagem/i, 'Figurinha');
+                            } else if (mediaLabel && /sem etiqueta/i.test(mediaLabel)) {
+                                content = mediaLabel.replace(/sem etiqueta/i, 'sem descrição');
+                            } else if (mediaLabel) {
+                                content = mediaLabel.replace(/^Figurinha:\s*/i, 'Figurinha: ');
+                            } else {
+                                content = "Figurinha sem descrição";
+                            }
+                        } else {
+                            content = mediaLabel ? mediaLabel : "Imagem sem descrição";
+                        }
                     }
 
                     // 2. Mensagens do Sistema
@@ -150,19 +380,25 @@
 
                     // 3. Texto padrão
                     else {
-                        const textNode = msgNode.querySelector('[data-testid="selectable-text"]') || 
+                        const quotedText = this.getQuotedMessageText(msgNode);
+                        const mainText = this.getMainMessageText(msgNode);
+                        const textNode = msgNode.querySelector('[data-testid="selectable-text"]') ||
                                          msgNode.querySelector('.copyable-text span') ||
                                          msgNode.querySelector('.copyable-text');
                         
-                        if (textNode) content = textNode.innerText;
+                        if (quotedText && mainText) {
+                            content = `Resposta citada: ${quotedText}. ${mainText}`;
+                        } else if (quotedText) {
+                            content = `Resposta citada: ${quotedText}`;
+                        } else if (mainText) {
+                            content = mainText;
+                        } else if (textNode) content = textNode.innerText;
 
-                        // 4. Voz (Botão de Play ou Pause)
-                        else if (this.getAudioButton(msgNode)) {
+                        if (!content && this.getAudioButton(msgNode)) {
                             content = "Mensagem de voz";
                         }
 
-                        // 5. Fallback Geral
-                        else {
+                        if (!content) {
                             const rawText = msgNode.innerText;
                             if (rawText && rawText.length > 0) {
                                 content = rawText.replace(/\d{1,2}:\d{2}\s*$/, ''); // Tenta remover hora do fim
@@ -180,7 +416,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "7.21.2"; } 
+        static get VERSION() { return "7.22.0"; } 
 
         static get SELECTORS() {
             return {
@@ -198,6 +434,7 @@
                 btnAttach: '[data-icon="plus-rounded"], [aria-label="Anexar"]',
                 btnMic: '[data-icon="mic-outlined"]',
                 btnAudioPlay: 'button[aria-label*="Reproduzir"], button[aria-label*="Pausar"], button[aria-label*="Play"], button[aria-label*="Pause"], [data-icon="audio-play"], [data-icon="audio-pause"]',
+                searchFields: ['#pane-side [data-testid="chat-list-search"]', '#pane-side [aria-label*="Pesquisar"]', '#pane-side [aria-label*="Search"]', '#pane-side [contenteditable="true"]'],
                 filterButtons: '[role="tablist"][aria-label="chat-list-filters"] [role="tab"], [role="tablist"][aria-label="Filtros da lista de conversas"] [role="tab"]'
             };
         }
@@ -207,9 +444,13 @@
                 TOGGLE: 'KeyS', 
                 FOCUS_CHAT_LIST: 'Digit1', 
                 FOCUS_MSG_LIST: 'Digit2',  
+                FOCUS_HEADER: 'Digit3',
+                FOCUS_RELEVANT_MESSAGE: 'Digit4',
+                FOCUS_SEARCH: 'KeyF',
                 READ_STATUS: 'KeyV',
                 ATTACH_MENU: 'KeyA',
                 TOGGLE_MONITOR: 'KeyO',
+                HELP: 'KeyH',
                 FILTER_ALL: 'Digit1',
                 FILTER_UNREAD: 'Digit2',
                 FILTER_GROUPS: 'Digit3',
@@ -313,19 +554,128 @@
         }
     }
 
+    class ShortcutHelpDialog {
+        constructor() {
+            this.dialog = null;
+            this.content = null;
+            this.closeButton = null;
+            this.lastFocus = null;
+            this._createDOM();
+        }
+
+        _createDOM() {
+            if (this.dialog) return;
+
+            this.dialog = document.createElement('dialog');
+            this.dialog.id = 'wpp-a11y-help-dialog';
+            this.dialog.setAttribute('aria-labelledby', 'wpp-a11y-help-title');
+            this.dialog.setAttribute('aria-describedby', 'wpp-a11y-help-desc');
+
+            this.dialog.innerHTML = `
+                <form method="dialog" class="wpp-a11y-help-shell">
+                    <div class="wpp-a11y-help-header">
+                        <div>
+                            <h2 id="wpp-a11y-help-title">Atalhos ativos</h2>
+                            <p id="wpp-a11y-help-desc">Navegação rápida e ajuda contextual.</p>
+                        </div>
+                        <button value="cancel" class="wpp-a11y-help-close" aria-label="Fechar ajuda">Fechar</button>
+                    </div>
+                    <div class="wpp-a11y-help-body">
+                        <dl class="wpp-a11y-help-list">
+                            <div><dt>Alt+S</dt><dd>Liga ou desliga</dd></div>
+                            <div><dt>Alt+1</dt><dd>Lista de conversas</dd></div>
+                            <div><dt>Alt+2</dt><dd>Mensagens e caixa de texto</dd></div>
+                            <div><dt>Alt+3</dt><dd>Cabeçalho da conversa</dd></div>
+                            <div><dt>Alt+4</dt><dd>Mensagem relevante</dd></div>
+                            <div><dt>Alt+F</dt><dd>Busca de conversas</dd></div>
+                            <div><dt>Alt+V</dt><dd>Status da conversa</dd></div>
+                            <div><dt>Alt+A</dt><dd>Menu anexar</dd></div>
+                            <div><dt>Alt+O</dt><dd>Monitor de status</dd></div>
+                            <div><dt>Alt+H</dt><dd>Ajuda</dd></div>
+                            <div><dt>Alt+?</dt><dd>Ajuda</dd></div>
+                            <div><dt>Ctrl+Shift+1-4</dt><dd>Filtros da lista</dd></div>
+                        </dl>
+                    </div>
+                </form>
+            `;
+
+            document.body.appendChild(this.dialog);
+            this.dialog.addEventListener('cancel', (event) => {
+                event.preventDefault();
+                this.close();
+            });
+            this.dialog.addEventListener('close', () => {
+                this._restoreFocus();
+            });
+        }
+
+        _restoreFocus() {
+            if (this.lastFocus && typeof this.lastFocus.focus === 'function') {
+                this.lastFocus.focus();
+            }
+            this.lastFocus = null;
+        }
+
+        open(trigger) {
+            if (!this.dialog) this._createDOM();
+            this.lastFocus = trigger || document.activeElement || null;
+
+            if (typeof this.dialog.showModal === 'function') {
+                this.dialog.showModal();
+            } else {
+                this.dialog.setAttribute('open', '');
+            }
+
+            const closeButton = this.dialog.querySelector('.wpp-a11y-help-close');
+            if (closeButton) {
+                closeButton.focus();
+            } else {
+                this.dialog.focus();
+            }
+        }
+
+        close() {
+            if (!this.dialog) return;
+
+            if (this.dialog.open) {
+                this.dialog.close();
+            } else {
+                this.dialog.removeAttribute('open');
+            }
+        }
+
+        toggle(trigger) {
+            if (this.dialog && this.dialog.open) {
+                this.close();
+                return;
+            }
+
+            this.open(trigger);
+        }
+    }
+
     class NavigationService {
         constructor(toast) {
             this.toast = toast;
         }
-        
+
+        _reportFallback(reason, logLabel = '') {
+            if (logLabel) {
+                Logger.debug(`${logLabel} fallback`, reason);
+            } else {
+                Logger.debug('Focus fallback', reason);
+            }
+            this.toast.show(reason);
+        }
+
         focusChatList() {
-            const side = document.querySelector(Constants.SELECTORS.sidePanel);
-            if (!side) return;
+            const chatList = DOMUtils.getChatListContainer();
+            if (!chatList) {
+                this._reportFallback('Lista de conversas indisponível', 'focusChatList');
+                return;
+            }
 
-            const chatList = side.querySelector('[data-testid="chat-list"], [role="grid"][aria-label="Lista de conversas"], [aria-label="Lista de conversas"]') || side;
-            const activeChatTitle = document.querySelector(Constants.SELECTORS.headerTitle)?.innerText.trim() || '';
-
-            // Foca a conversa selecionada ou, na falta dela, a primeira linha visível.
+            const activeChatTitle = DOMUtils.getConversationTitle();
             let target = chatList.querySelector('[aria-selected="true"]');
 
             if (target) {
@@ -341,21 +691,63 @@
             }
 
             if (!target) {
-                target = chatList.querySelector('[role="row"][data-testid^="list-item-"]') || chatList.querySelector('[role="row"]');
+                const unreadRows = Array.from(chatList.querySelectorAll('[role="row"][data-testid^="list-item-"]'))
+                    .filter((row) => row.querySelector('[data-testid="icon-unread-count"], [data-testid="unread-count"]'));
+                target = unreadRows[0] || chatList.querySelector('[role="row"][data-testid^="list-item-"]') || chatList.querySelector('[role="row"]');
             }
 
-            if (target) {
-                target.scrollIntoView({block: 'center', inline: 'nearest'});
-                const focusTarget = target.querySelector('[aria-selected="true"]') || target.querySelector('[role="gridcell"]') || target;
-                focusTarget.setAttribute('tabindex', '0'); // Garante que é focável
-                focusTarget.focus();
-                this.toast.show("Lista de conversas");
-            } else {
-                // Fallback final: foca no painel lateral em si
-                side.setAttribute('tabindex', '-1');
-                side.focus();
-                this.toast.show("Painel lateral");
+            if (!target) {
+                this._reportFallback('Lista de conversas indisponível', 'focusChatList');
+                return;
             }
+
+            target.scrollIntoView({ block: 'center', inline: 'nearest' });
+            const focusTarget = target.querySelector('[aria-selected="true"]') || target.querySelector('[role="gridcell"]') || target;
+            focusTarget.setAttribute('tabindex', '0');
+            focusTarget.focus();
+            this.toast.show("Lista de conversas");
+        }
+
+        focusChatHeader() {
+            const summary = DOMUtils.getConversationSummary();
+            if (!summary) {
+                this._reportFallback('Nenhuma conversa aberta', 'focusChatHeader');
+                return;
+            }
+
+            const header = summary.header;
+            const target = DOMUtils.findFirst(header, [
+                '[data-testid="conversation-info-header"]',
+                '[data-testid="group-chat-profile-picture"]',
+                Constants.SELECTORS.headerTitle,
+                'header'
+            ]);
+
+            if (!target) {
+                this._reportFallback('Nenhuma conversa aberta', 'focusChatHeader');
+                return;
+            }
+
+            const label = [summary.title, summary.kind, summary.unread > 0 ? `${summary.unread} não lidas` : '', summary.status].filter(Boolean).join(', ');
+            target.setAttribute('tabindex', '-1');
+            target.setAttribute('aria-label', label || summary.title);
+            target.focus();
+            this.toast.show("Cabeçalho");
+        }
+
+        focusChatSearch() {
+            const input = DOMUtils.getSearchInput();
+            if (!input) {
+                this._reportFallback('Busca indisponível', 'focusChatSearch');
+                return;
+            }
+
+            input.setAttribute('tabindex', '0');
+            input.focus();
+            if (typeof input.select === 'function') {
+                input.select();
+            }
+            this.toast.show("Busca");
         }
 
         handleMessageAreaFocus() {
@@ -365,50 +757,90 @@
                 return;
             }
             const input = document.querySelector(Constants.SELECTORS.footerInput);
+            if (!input) {
+                this._reportFallback('Nenhuma conversa aberta', 'handleMessageAreaFocus');
+                return;
+            }
             const activeEl = document.activeElement;
-            if (activeEl === input) {
+            const isInComposer = activeEl === input || footer.contains(activeEl);
+            if (isInComposer) {
                 this._focusMessageListContainer();
             } else {
-                if (input) {
-                    input.focus();
-                    this.toast.show("Escrever mensagem");
-                }
+                input.focus();
+                this.toast.show("Escrever mensagem");
             }
         }
-        
+
         _focusMessageListContainer() {
             const messages = document.querySelectorAll(Constants.SELECTORS.messageList.join(', '));
-            if (messages.length > 0) {
-                const lastMsg = messages[messages.length - 1];
-                const focusTarget = lastMsg.closest('[role="row"]') || lastMsg;
-                if (!focusTarget.hasAttribute('tabindex')) focusTarget.setAttribute('tabindex', '-1');
-                focusTarget.focus();
-                this.toast.show("Lista de mensagens");
+            if (messages.length === 0) {
+                this._reportFallback('Nenhuma mensagem focável encontrada', 'focusMessageList');
+                return false;
             }
+
+            const lastMsg = messages[messages.length - 1];
+            const focusTarget = DOMUtils.getMessageFocusTarget(lastMsg);
+            if (!focusTarget) {
+                this._reportFallback('Nenhuma mensagem focável encontrada', 'focusMessageList');
+                return false;
+            }
+
+            focusTarget.setAttribute('tabindex', '-1');
+            focusTarget.focus();
+            this.toast.show("Lista de mensagens");
+            return true;
         }
-        
+
+        focusRelevantMessage() {
+            const main = document.querySelector(Constants.SELECTORS.mainPanel);
+            if (!main) {
+                this._reportFallback('Nenhuma conversa aberta', 'focusRelevantMessage');
+                return;
+            }
+
+            const unreadMarker = DOMUtils.getFirstUnreadMarker(main);
+            let target = null;
+
+            if (unreadMarker) {
+                const markerRow = unreadMarker.closest('[role="row"]') || unreadMarker.closest('[data-testid^="conv-msg-"]') || unreadMarker;
+                const nextRow = markerRow.nextElementSibling;
+                const nextMessage = nextRow?.querySelector('.message-in, .message-out, [data-testid^="conv-msg-"]') || nextRow;
+                target = DOMUtils.getMessageFocusTarget(nextMessage || markerRow);
+            }
+
+            if (!target) {
+                const incomingMessages = Array.from(main.querySelectorAll('.message-in'));
+                const lastReceived = incomingMessages[incomingMessages.length - 1];
+                target = DOMUtils.getMessageFocusTarget(lastReceived);
+            }
+
+            if (!target) {
+                this._reportFallback('Nenhuma mensagem focável encontrada', 'focusRelevantMessage');
+                return;
+            }
+
+            target.scrollIntoView({ block: 'center', inline: 'nearest' });
+            target.setAttribute('tabindex', '-1');
+            target.focus();
+            this.toast.show("Mensagem relevante");
+        }
+
         readChatStatus() {
-            const header = document.querySelector('#main header');
+            const header = DOMUtils.getHeaderElement();
             if (!header) {
                 this.toast.show("Nenhuma conversa aberta");
                 return;
             }
-            const titleEl = header.querySelector(Constants.SELECTORS.headerTitle);
-            if (titleEl) {
-                const fullText = header.innerText;
-                const contactName = titleEl.innerText;
-                let statusText = fullText.replace(contactName, '').replace(/\n/g, ' ').trim();
-                statusText = statusText.replace(/video-call|voice-call|search/gi, '').trim();
-                if (statusText.length > 1) {
-                    this.toast.show("Status: " + statusText);
-                    return;
-                }
-            } else {
-                const possibleStatus = header.querySelector('span[title]:not([dir="auto"])');
-                if (possibleStatus) {
-                    this.toast.show("Status: " + possibleStatus.getAttribute('title'));
-                    return;
-                }
+            const statusText = DOMUtils.getConversationStatus(header);
+            if (statusText) {
+                this.toast.show("Status: " + statusText);
+                return;
+            }
+
+            const possibleStatus = header.querySelector('span[title]:not([dir="auto"])');
+            if (possibleStatus) {
+                this.toast.show("Status: " + possibleStatus.getAttribute('title'));
+                return;
             }
             this.toast.show("Status indisponível");
         }
@@ -495,9 +927,11 @@
                 if (content) {
                     // Tenta encontrar o elemento focável exato (onde o NVDA para com Alt+2 ou Tab)
                     const focusable = msg.querySelector('[tabindex="0"]') || msg;
+                    const directionLabel = DOMUtils.getMessageDirectionLabel(msg);
+                    const announcementLabel = directionLabel + content;
                     
                     // FORÇA a aplicação do label, sobrescrevendo qualquer anterior para garantir consistência
-                    focusable.setAttribute('aria-label', content);
+                    focusable.setAttribute('aria-label', announcementLabel);
                     
                     // Se for Cartão de Contato, define role="article" para evitar que o NVDA
                     // leia apenas "use as setas..." devido aos botões internos
@@ -507,12 +941,12 @@
                     
                     // Fallback para o container principal caso o focável não seja o root
                     if (focusable !== msg) {
-                         msg.setAttribute('aria-label', content);
+                         msg.setAttribute('aria-label', announcementLabel);
                     }
                     
                     // Aplica DIRETAMENTE no texto (para navegação com setas)
                     if (textNode) {
-                        textNode.setAttribute('aria-label', content);
+                        textNode.setAttribute('aria-label', announcementLabel);
                     }
 
                     // Tenta limpar o REMETENTE (se for um número)
@@ -559,6 +993,7 @@
             this.observer = null;
             this.currentHeader = null;
             this.lastStatus = "";
+            this.currentConversationSignature = "";
         }
 
         toggle() {
@@ -571,7 +1006,14 @@
         checkAndAttach() {
             if (!this.enabled) return;
 
-            const header = document.querySelector(Constants.SELECTORS.headerTitle)?.closest('header');
+            const header = DOMUtils.getHeaderElement();
+            if (!header) {
+                if (this.currentHeader) {
+                    this.disconnect();
+                }
+                return;
+            }
+
             if (header && header !== this.currentHeader) {
                 this.disconnect();
                 this.currentHeader = header;
@@ -580,7 +1022,12 @@
                 // Observa mudanças no header (onde o status aparece)
                 this.observer = new MutationObserver(() => this._checkStatus());
                 this.observer.observe(header, { subtree: true, childList: true, characterData: true });
-                
+
+                const context = this._announceConversationContext();
+                if (context && context.status) {
+                    this.lastStatus = context.status;
+                }
+
                 // Checagem inicial imediata (para "Visto por último")
                 setTimeout(() => this._checkStatus(true), 500);
             }
@@ -592,27 +1039,39 @@
                 this.observer = null;
             }
             this.currentHeader = null;
+            this.currentConversationSignature = "";
+        }
+
+        _announceConversationContext() {
+            const context = DOMUtils.getConversationSummary();
+            if (!context) return null;
+
+            if (context.signature === this.currentConversationSignature) {
+                return context;
+            }
+
+            this.currentConversationSignature = context.signature;
+
+            const parts = [context.title, context.kind];
+            if (context.unread > 0) parts.push(`${context.unread} não lidas`);
+            if (context.status) parts.push(context.status);
+            else if (context.subtitle && context.subtitle !== context.title) parts.push(context.subtitle);
+
+            const announcement = parts.filter(Boolean).join(', ');
+            if (announcement) {
+                this.announcer.announcePolite(announcement);
+                Logger.debug('Conversation context announced', context.signature);
+            }
+
+            return context;
         }
 
         _checkStatus(isInitial = false) {
             if (!this.currentHeader) return;
 
-            // Tenta achar o elemento de texto do status (geralmente abaixo do título)
-            // O título vem do bloco do header da conversa; o status costuma estar logo abaixo.
-            // Estratégia: Pegar todo o texto do header e remover o título do contato
-            const titleEl = this.currentHeader.querySelector(Constants.SELECTORS.headerTitle);
-            if (!titleEl) return;
+            const statusText = DOMUtils.getConversationStatus(this.currentHeader);
 
-            const contactName = titleEl.innerText;
-            const fullText = this.currentHeader.innerText;
-            
-            // Remove o nome do contato e limpa quebras de linha
-            let statusText = fullText.replace(contactName, '').replace(/[\n\r]+/g, ' ').trim();
-            
-            // Filtros de ruído
-            statusText = statusText.replace(/video-call|voice-call|search/gi, '').trim();
-
-            if (statusText.length < 2) return; // Ignora lixo
+            if (!statusText || statusText.length < 2) return;
             if (statusText === this.lastStatus) return; // Ignora se não mudou
 
             // Lógica de Decisão
@@ -646,6 +1105,7 @@
             this.toast = new ToastService();
             this.liveAnnouncer = new LiveAnnouncer();
             this.beep = new BeepService();
+            this.helpDialog = new ShortcutHelpDialog();
             this.navigator = new NavigationService(this.toast);
             this.enhancer = new MessageEnhancer();
             this.statusMonitor = new StatusMonitor(this.liveAnnouncer, this.toast);
@@ -686,6 +1146,77 @@
                         font-size: 14px; font-weight: 500; opacity: 0; transition: opacity 0.2s; pointer-events: none;
                     }
                     #wpp-a11y-toast.visible { opacity: 1; }
+                    #wpp-a11y-help-dialog {
+                        width: min(640px, calc(100vw - 32px));
+                        border: 1px solid #2a3942;
+                        border-radius: 20px;
+                        padding: 0;
+                        background: #111b21;
+                        color: #e9edef;
+                        box-shadow: 0 24px 72px rgba(0, 0, 0, 0.45);
+                    }
+                    #wpp-a11y-help-dialog::backdrop {
+                        background: rgba(11, 20, 26, 0.72);
+                    }
+                    .wpp-a11y-help-shell {
+                        margin: 0;
+                        padding: 20px;
+                    }
+                    .wpp-a11y-help-header {
+                        display: flex;
+                        align-items: flex-start;
+                        justify-content: space-between;
+                        gap: 16px;
+                        margin-bottom: 16px;
+                    }
+                    .wpp-a11y-help-header h2 {
+                        margin: 0;
+                        font-size: 20px;
+                        line-height: 1.2;
+                    }
+                    .wpp-a11y-help-header p {
+                        margin: 6px 0 0;
+                        color: #8696a0;
+                        font-size: 13px;
+                    }
+                    .wpp-a11y-help-close {
+                        border: 1px solid #374248;
+                        background: #202c33;
+                        color: #e9edef;
+                        border-radius: 999px;
+                        padding: 8px 14px;
+                        font-size: 13px;
+                    }
+                    .wpp-a11y-help-body {
+                        max-height: min(60vh, 520px);
+                        overflow: auto;
+                        padding-right: 4px;
+                    }
+                    .wpp-a11y-help-list {
+                        display: grid;
+                        gap: 10px;
+                        margin: 0;
+                    }
+                    .wpp-a11y-help-list > div {
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: baseline;
+                        gap: 16px;
+                        padding: 10px 12px;
+                        border-radius: 14px;
+                        background: #0f1b22;
+                        border: 1px solid #2a3942;
+                    }
+                    .wpp-a11y-help-list dt {
+                        font-weight: 700;
+                        margin: 0;
+                        white-space: nowrap;
+                    }
+                    .wpp-a11y-help-list dd {
+                        margin: 0;
+                        color: #d1d7db;
+                        text-align: right;
+                    }
                 `);
             }
         }
@@ -695,7 +1226,7 @@
                 // Intercepta CTRL + C em mensagens
                 if (e.ctrlKey && e.code === 'KeyC' && this.state.activated) {
                     const active = document.activeElement;
-                    const msgNode = active.closest('.message-in, .message-out');
+                    const msgNode = DOMUtils.getFocusedMessageNode(active);
                     
                     if (msgNode) {
                         e.preventDefault();
@@ -738,7 +1269,7 @@
                 // Intercepta a tecla APPLICATIONS (ContextMenu) para abrir opções da mensagem
                 if (e.key === 'ContextMenu' && this.state.activated) {
                     const active = document.activeElement;
-                    const msgNode = active.closest('.message-in, .message-out');
+                    const msgNode = DOMUtils.getFocusedMessageNode(active);
                     
                     if (msgNode) {
                         e.preventDefault(); 
@@ -764,9 +1295,10 @@
                 if (e.code === 'Enter' && this.state.activated) {
                     const active = document.activeElement;
                     // Verifica se o elemento focado é uma mensagem (in ou out)
-                    if (active && (active.classList.contains('message-in') || active.classList.contains('message-out'))) {
+                    const msgNode = DOMUtils.getFocusedMessageNode(active);
+                    if (msgNode) {
                         // Tenta achar o botão de play/pause dentro dessa mensagem
-                        const playBtn = DOMUtils.getAudioButton(active);
+                        const playBtn = DOMUtils.getAudioButton(msgNode);
                         if (playBtn) {
                             e.preventDefault();
                             playBtn.click();
@@ -780,12 +1312,18 @@
                     this.state.activated = !this.state.activated;
                 }
                 if (!this.state.activated) return;
-                
+
+                const isHelpShortcut = e.altKey && (e.code === Constants.SHORTCUTS.HELP || (e.shiftKey && e.code === 'Slash'));
+
                 if (e.altKey && e.code === Constants.SHORTCUTS.FOCUS_CHAT_LIST) { e.preventDefault(); this.navigator.focusChatList(); }
                 if (e.altKey && e.code === Constants.SHORTCUTS.FOCUS_MSG_LIST) { e.preventDefault(); this.navigator.handleMessageAreaFocus(); }
+                if (e.altKey && e.code === Constants.SHORTCUTS.FOCUS_HEADER) { e.preventDefault(); this.navigator.focusChatHeader(); }
+                if (e.altKey && e.code === Constants.SHORTCUTS.FOCUS_RELEVANT_MESSAGE) { e.preventDefault(); this.navigator.focusRelevantMessage(); }
+                if (e.altKey && e.code === Constants.SHORTCUTS.FOCUS_SEARCH) { e.preventDefault(); this.navigator.focusChatSearch(); }
                 if (e.altKey && e.code === Constants.SHORTCUTS.READ_STATUS) { e.preventDefault(); this.navigator.readChatStatus(); }
                 if (e.altKey && e.code === Constants.SHORTCUTS.ATTACH_MENU) { e.preventDefault(); this.navigator.openAttachMenu(); }
                 if (e.altKey && e.code === Constants.SHORTCUTS.TOGGLE_MONITOR) { e.preventDefault(); this.statusMonitor.toggle(); }
+                if (isHelpShortcut) { e.preventDefault(); this.helpDialog.toggle(e.target); }
 
                 // Atalhos para Filtros de Conversa (Ctrl + Shift + 1, 2, 3, 4)
                 if (e.ctrlKey && e.shiftKey && this.state.activated) {
@@ -867,6 +1405,7 @@
                 this.toast.show("Acessibilidade Desativada");
                 this.mutationObserver.disconnect();
                 this.statusMonitor.disconnect();
+                this.helpDialog.close();
             }
         }
 
@@ -936,10 +1475,9 @@
                     setTimeout(() => {
                         const content = DOMUtils.getMessageContent(msgNode);
                         if (content) {
-                            const isOut = msgNode.classList.contains(Constants.SELECTORS.messageOutClass);
-                            const prefix = isOut ? "Enviada: " : "Nova: ";
+                            const prefix = DOMUtils.getMessageDirectionLabel(msgNode);
                             
-                            Logger.debug("📢 Anunciando:", content);
+                            Logger.debug("📢 Anunciando:", prefix + content);
                             this.beep.playNotification();
                             this.liveAnnouncer.announce(prefix + content);
                             msgNode.dataset.wppA11yAnnounced = "true";
