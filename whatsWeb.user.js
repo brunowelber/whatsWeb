@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      8.0.5
+// @version      8.0.6
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -455,7 +455,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "8.0.5"; } 
+        static get VERSION() { return "8.0.6"; } 
 
         static get SELECTORS() {
             return {
@@ -1201,7 +1201,7 @@
         }
 
         _getLatestVisibleMessageNode() {
-            const messages = document.querySelectorAll(`${Constants.SELECTORS.mainPanel} .message-in, ${Constants.SELECTORS.mainPanel} .message-out`);
+            const messages = document.querySelectorAll(Constants.SELECTORS.messageList.join(', '));
             if (!messages || messages.length === 0) return null;
             return messages[messages.length - 1];
         }
@@ -1543,18 +1543,11 @@
                     mutation.addedNodes.forEach(node => {
                         if (node.nodeType !== 1) return;
 
-                        const isIn = node.classList && node.classList.contains(Constants.SELECTORS.messageInClass);
-                        const isOut = node.classList && node.classList.contains(Constants.SELECTORS.messageOutClass);
+                        const isMessageRoot = node.matches?.(Constants.SELECTORS.messageList.join(', '));
+                        const hasMessageRoot = node.querySelector?.(Constants.SELECTORS.messageList.join(', '));
 
-                        if (isIn || isOut) {
+                        if (isMessageRoot || hasMessageRoot) {
                             shouldAnnounceLatestMessage = true;
-                        } 
-                        else if (node.querySelector) {
-                            const selector = `.${Constants.SELECTORS.messageInClass}, .${Constants.SELECTORS.messageOutClass}`;
-                            const nestedMsgs = node.querySelectorAll(selector);
-                            if (nestedMsgs.length > 0) {
-                                shouldAnnounceLatestMessage = true;
-                            }
                         }
                     });
                     needsEnhance = true;
