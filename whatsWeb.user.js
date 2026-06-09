@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      8.0.3
+// @version      8.0.5
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -210,6 +210,27 @@
         static getMessageDirectionLabel(msgNode) {
             if (!msgNode) return '';
             return msgNode.classList && msgNode.classList.contains(Constants.SELECTORS.messageOutClass) ? 'Enviada: ' : 'Recebida: ';
+        }
+
+        static getMessageAnnouncementKey(msgNode) {
+            if (!msgNode) return '';
+
+            const messageRoot = msgNode.closest?.('[data-id]') ||
+                msgNode.closest?.('[data-testid^="conv-msg-"]') ||
+                msgNode.closest?.('.message-in, .message-out') ||
+                msgNode;
+
+            const rootKey = messageRoot.getAttribute?.('data-id') ||
+                messageRoot.getAttribute?.('data-testid') ||
+                messageRoot.getAttribute?.('id') ||
+                '';
+
+            if (rootKey) return rootKey;
+
+            const prePlainText = messageRoot.querySelector?.('[data-pre-plain-text]')?.getAttribute('data-pre-plain-text') || '';
+            const content = this.getMessageContent(msgNode) || '';
+            const direction = this.getMessageDirectionLabel(msgNode);
+            return [direction, prePlainText, content].join('|');
         }
 
         static getQuotedMessageText(msgNode) {
@@ -434,7 +455,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "8.0.2"; } 
+        static get VERSION() { return "8.0.5"; } 
 
         static get SELECTORS() {
             return {
@@ -1152,6 +1173,8 @@
             this.navigator = new NavigationService(this.toast);
             this.enhancer = new MessageEnhancer();
             this.statusMonitor = new StatusMonitor(this.liveAnnouncer, this.toast);
+            this.currentConversationSignature = '';
+            this.lastAnnouncedMessageKey = '';
             
             this.state = new Proxy({ activated: false }, {
                 set: (target, prop, value) => {
@@ -1175,6 +1198,56 @@
                 // Pequeno delay para garantir que o WhatsApp carregou o básico
                 setTimeout(() => { this.state.activated = true; }, 3000);
             }
+        }
+
+        _getLatestVisibleMessageNode() {
+            const messages = document.querySelectorAll(`${Constants.SELECTORS.mainPanel} .message-in, ${Constants.SELECTORS.mainPanel} .message-out`);
+            if (!messages || messages.length === 0) return null;
+            return messages[messages.length - 1];
+        }
+
+        _syncConversationMessageState() {
+            const summary = DOMUtils.getConversationSummary();
+            const signature = summary ? [summary.title, summary.kind].join('|') : '';
+
+            if (!signature || signature === this.currentConversationSignature) {
+                return false;
+            }
+
+            if (this._latestMessageTimer) {
+                clearTimeout(this._latestMessageTimer);
+                this._latestMessageTimer = null;
+            }
+
+            this.currentConversationSignature = signature;
+            const latestMessage = this._getLatestVisibleMessageNode();
+            this.lastAnnouncedMessageKey = latestMessage ? DOMUtils.getMessageAnnouncementKey(latestMessage) : '';
+            return true;
+        }
+
+        _announceLatestMessage() {
+            const msgNode = this._getLatestVisibleMessageNode();
+            if (!msgNode) return;
+
+            const content = DOMUtils.getMessageContent(msgNode);
+            if (!content) return;
+
+            const messageKey = DOMUtils.getMessageAnnouncementKey(msgNode);
+            if (!messageKey || messageKey === this.lastAnnouncedMessageKey) return;
+
+            Logger.debug('📢 Anunciando última mensagem:', content);
+            this.beep.playNotification();
+            this.liveAnnouncer.announce(content);
+            this.lastAnnouncedMessageKey = messageKey;
+            msgNode.dataset.wppA11yAnnounced = 'true';
+        }
+
+        _scheduleLatestMessageAnnouncement() {
+            if (this._latestMessageTimer) clearTimeout(this._latestMessageTimer);
+            this._latestMessageTimer = setTimeout(() => {
+                this._latestMessageTimer = null;
+                this._announceLatestMessage();
+            }, 500);
         }
 
         _injectStyles() {
@@ -1434,6 +1507,7 @@
                 }
                 this.toast.show("Acessibilidade Ativada");
                 this.enhancer.enhanceAll();
+                this._syncConversationMessageState();
                 const appRoot = document.querySelector(Constants.SELECTORS.app) || document.body;
                 // Adiciona observação de atributos para evitar que o React reverta nossas mudanças
                 this.mutationObserver.observe(appRoot, { 
@@ -1456,8 +1530,9 @@
 
             // Verifica se precisa reanexar o monitor de status (ex: mudou de conversa)
             this.statusMonitor.checkAndAttach();
+            const conversationChanged = this._syncConversationMessageState();
 
-            const potentialMessages = [];
+            let shouldAnnounceLatestMessage = false;
             let needsEnhance = false;
             
             mutations.forEach(mutation => {
@@ -1472,12 +1547,14 @@
                         const isOut = node.classList && node.classList.contains(Constants.SELECTORS.messageOutClass);
 
                         if (isIn || isOut) {
-                            potentialMessages.push(node);
+                            shouldAnnounceLatestMessage = true;
                         } 
                         else if (node.querySelector) {
                             const selector = `.${Constants.SELECTORS.messageInClass}, .${Constants.SELECTORS.messageOutClass}`;
                             const nestedMsgs = node.querySelectorAll(selector);
-                            nestedMsgs.forEach(m => potentialMessages.push(m));
+                            if (nestedMsgs.length > 0) {
+                                shouldAnnounceLatestMessage = true;
+                            }
                         }
                     });
                     needsEnhance = true;
@@ -1498,34 +1575,12 @@
                 }
             });
 
-            if (potentialMessages.length > 0 && potentialMessages.length < 5) {
-                // Obtém a lista atualizada de todas as mensagens VISÍVEIS no painel principal
-                const allVisibleMessages = document.querySelectorAll(`${Constants.SELECTORS.mainPanel} .message-in, ${Constants.SELECTORS.mainPanel} .message-out`);
-                const actualLastMessage = allVisibleMessages.length > 0 ? allVisibleMessages[allVisibleMessages.length - 1] : null;
+            if (conversationChanged) {
+                shouldAnnounceLatestMessage = false;
+            }
 
-                potentialMessages.forEach(msgNode => {
-                    if (msgNode.dataset.wppA11yAnnounced) return;
-
-                    // Garante que a mensagem está visualmente na conversa aberta (dentro de #main)
-                    if (!msgNode.closest(Constants.SELECTORS.mainPanel)) return;
-
-                    // CORREÇÃO: Verifica se esta mensagem é REALMENTE a última da lista visual.
-                    // Se não for a última (ex: msgNode !== actualLastMessage), significa que é 
-                    // uma mensagem de histórico carregada junto com a nova. Ignoramos.
-                    if (actualLastMessage && msgNode !== actualLastMessage) return;
-                    
-                    setTimeout(() => {
-                        const content = DOMUtils.getMessageContent(msgNode);
-                        if (content) {
-                            const prefix = DOMUtils.getMessageDirectionLabel(msgNode);
-                            
-                            Logger.debug("📢 Anunciando:", prefix + content);
-                            this.beep.playNotification();
-                            this.liveAnnouncer.announce(prefix + content);
-                            msgNode.dataset.wppA11yAnnounced = "true";
-                        }
-                    }, 500);
-                });
+            if (shouldAnnounceLatestMessage) {
+                this._scheduleLatestMessageAnnouncement();
             }
 
             if (this._debounceTimer) clearTimeout(this._debounceTimer);
