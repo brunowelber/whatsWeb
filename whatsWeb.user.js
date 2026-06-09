@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      8.0.6
+// @version      8.0.8
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -455,7 +455,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "8.0.6"; } 
+        static get VERSION() { return "8.0.8"; } 
 
         static get SELECTORS() {
             return {
@@ -637,7 +637,7 @@
                             <div><dt>Alt+1</dt><dd>Lista de conversas</dd></div>
                             <div><dt>Alt+2</dt><dd>Mensagens e caixa de texto</dd></div>
                             <div><dt>Alt+3</dt><dd>Cabeçalho da conversa</dd></div>
-                            <div><dt>Alt+4</dt><dd>Mensagem relevante</dd></div>
+                            <div><dt>Alt+4</dt><dd>Última mensagem</dd></div>
                             <div><dt>Alt+F</dt><dd>Busca de conversas</dd></div>
                             <div><dt>Alt+V</dt><dd>Status da conversa</dd></div>
                             <div><dt>Alt+O</dt><dd>Monitor de status</dd></div>
@@ -1201,7 +1201,13 @@
         }
 
         _getLatestVisibleMessageNode() {
-            const messages = document.querySelectorAll(Constants.SELECTORS.messageList.join(', '));
+            const wrappers = document.querySelectorAll(`${Constants.SELECTORS.mainPanel} [data-testid^="conv-msg-"]`);
+            if (wrappers && wrappers.length > 0) {
+                const lastWrapper = wrappers[wrappers.length - 1];
+                return lastWrapper.querySelector('.message-in, .message-out') || lastWrapper;
+            }
+
+            const messages = document.querySelectorAll(`${Constants.SELECTORS.mainPanel} .message-in, ${Constants.SELECTORS.mainPanel} .message-out`);
             if (!messages || messages.length === 0) return null;
             return messages[messages.length - 1];
         }
@@ -1248,6 +1254,24 @@
                 this._latestMessageTimer = null;
                 this._announceLatestMessage();
             }, 500);
+        }
+
+        readLatestConversationMessage() {
+            const msgNode = this._getLatestVisibleMessageNode();
+            if (!msgNode) {
+                this.toast.show("Nenhuma mensagem encontrada");
+                return;
+            }
+
+            const content = DOMUtils.getMessageContent(msgNode);
+            if (!content) {
+                this.toast.show("Nenhuma mensagem encontrada");
+                return;
+            }
+
+            this.beep.playNotification();
+            this.liveAnnouncer.announce(content);
+            this.toast.show("Última mensagem");
         }
 
         _injectStyles() {
@@ -1434,7 +1458,7 @@
                 if (e.altKey && e.code === Constants.SHORTCUTS.FOCUS_CHAT_LIST) { e.preventDefault(); this.navigator.focusChatList(); }
                 if (e.altKey && e.code === Constants.SHORTCUTS.FOCUS_MSG_LIST) { e.preventDefault(); this.navigator.handleMessageAreaFocus(); }
                 if (e.altKey && e.code === Constants.SHORTCUTS.FOCUS_HEADER) { e.preventDefault(); this.navigator.focusChatHeader(); }
-                if (e.altKey && e.code === Constants.SHORTCUTS.FOCUS_RELEVANT_MESSAGE) { e.preventDefault(); this.navigator.focusRelevantMessage(); }
+                if (e.altKey && e.code === Constants.SHORTCUTS.FOCUS_RELEVANT_MESSAGE) { e.preventDefault(); this.readLatestConversationMessage(); }
                 if (e.altKey && e.code === Constants.SHORTCUTS.FOCUS_SEARCH) { e.preventDefault(); this.navigator.focusChatSearch(); }
                 if (e.altKey && e.code === Constants.SHORTCUTS.READ_STATUS) { e.preventDefault(); this.navigator.readChatStatus(); }
                 if (e.altKey && e.code === Constants.SHORTCUTS.TOGGLE_MONITOR) { e.preventDefault(); this.statusMonitor.toggle(); }
