@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      8.0.8
+// @version      8.0.9
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -210,6 +210,58 @@
         static getMessageDirectionLabel(msgNode) {
             if (!msgNode) return '';
             return msgNode.classList && msgNode.classList.contains(Constants.SELECTORS.messageOutClass) ? 'Enviada: ' : 'Recebida: ';
+        }
+
+        static normalizeMessageStatusLabel(text) {
+            const normalized = (text || '').replace(/\s+/g, ' ').trim().toLowerCase();
+            if (!normalized) return '';
+
+            if (normalized.includes('lida') || normalized.includes('read')) return 'Lida';
+            if (normalized.includes('entreg') || normalized.includes('delivered')) return 'Entregue';
+            if (normalized.includes('enviad') || normalized.includes('sent')) return 'Enviada';
+            if (normalized.includes('wds-ic-read')) return 'Lida';
+            if (normalized.includes('wds-ic-delivered')) return 'Entregue';
+
+            return '';
+        }
+
+        static getMessageStatusLabel(msgNode) {
+            if (!msgNode) return '';
+
+            const messageRoot = msgNode.matches?.('.message-in, .message-out')
+                ? msgNode
+                : msgNode.querySelector?.('.message-in, .message-out') ||
+                    msgNode.closest?.('.message-in, .message-out') ||
+                    msgNode.closest?.('[data-testid^="conv-msg-"]') ||
+                    msgNode;
+
+            if (!messageRoot.classList?.contains(Constants.SELECTORS.messageOutClass)) return '';
+
+            const metaNode = messageRoot.querySelector?.('[data-testid="msg-meta"]') ||
+                msgNode.querySelector?.('[data-testid="msg-meta"]') ||
+                msgNode.closest?.('[data-testid^="conv-msg-"]')?.querySelector?.('[data-testid="msg-meta"]');
+
+            if (!metaNode) return '';
+
+            const candidates = Array.from(metaNode.querySelectorAll('[aria-label], [title], svg title, [data-icon]'));
+            for (const candidate of candidates) {
+                const rawLabel = candidate.getAttribute?.('aria-label') ||
+                    candidate.getAttribute?.('title') ||
+                    candidate.textContent ||
+                    '';
+                const statusLabel = this.normalizeMessageStatusLabel(rawLabel);
+                if (statusLabel) return statusLabel;
+            }
+
+            return this.normalizeMessageStatusLabel(metaNode.innerText || metaNode.textContent || '');
+        }
+
+        static getMessageAnnouncementText(msgNode) {
+            const content = this.getMessageContent(msgNode);
+            if (!content) return '';
+
+            const status = this.getMessageStatusLabel(msgNode);
+            return status ? `${content}, ${status.toLowerCase()}` : content;
         }
 
         static getMessageAnnouncementKey(msgNode) {
@@ -455,7 +507,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "8.0.8"; } 
+        static get VERSION() { return "8.0.9"; } 
 
         static get SELECTORS() {
             return {
@@ -989,7 +1041,7 @@
                     // Prioriza o root da mensagem para o foco e leitura assistida.
                     const focusable = DOMUtils.getMessageFocusTarget(msg);
                     const directionLabel = DOMUtils.getMessageDirectionLabel(msg);
-                    const announcementLabel = directionLabel + content;
+                    const announcementLabel = directionLabel + DOMUtils.getMessageAnnouncementText(msg);
                     
                     // FORÇA a aplicação do label, sobrescrevendo qualquer anterior para garantir consistência
                     if (!focusable.hasAttribute('tabindex')) {
@@ -1235,7 +1287,7 @@
             const msgNode = this._getLatestVisibleMessageNode();
             if (!msgNode) return;
 
-            const content = DOMUtils.getMessageContent(msgNode);
+            const content = DOMUtils.getMessageAnnouncementText(msgNode);
             if (!content) return;
 
             const messageKey = DOMUtils.getMessageAnnouncementKey(msgNode);
@@ -1263,7 +1315,7 @@
                 return;
             }
 
-            const content = DOMUtils.getMessageContent(msgNode);
+            const content = DOMUtils.getMessageAnnouncementText(msgNode);
             if (!content) {
                 this.toast.show("Nenhuma mensagem encontrada");
                 return;
