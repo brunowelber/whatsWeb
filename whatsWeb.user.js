@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      8.0.13
+// @version      8.0.14
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -173,10 +173,10 @@
         static getMessageFocusTarget(msgNode) {
             if (!msgNode) return null;
 
-            const focusableItem = msgNode.matches?.('.focusable-list-item[aria-label]')
+            const focusableItem = msgNode.matches?.('.focusable-list-item')
                 ? msgNode
-                : msgNode.querySelector?.('.focusable-list-item[aria-label]') ||
-                    msgNode.closest?.('.focusable-list-item[aria-label]') ||
+                : msgNode.querySelector?.('.focusable-list-item') ||
+                    msgNode.closest?.('.focusable-list-item') ||
                     null;
 
             if (focusableItem) return focusableItem;
@@ -217,7 +217,10 @@
 
         static getMessageDirectionLabel(msgNode) {
             if (!msgNode) return '';
-            return msgNode.classList && msgNode.classList.contains(Constants.SELECTORS.messageOutClass) ? 'Enviada: ' : 'Recebida: ';
+            const isOutgoing = msgNode.classList?.contains(Constants.SELECTORS.messageOutClass) ||
+                Boolean(msgNode.closest?.(`.${Constants.SELECTORS.messageOutClass}`)) ||
+                Boolean(msgNode.querySelector?.(`.${Constants.SELECTORS.messageOutClass}`));
+            return isOutgoing ? 'Enviada: ' : '';
         }
 
         static normalizeMessageStatusLabel(text) {
@@ -538,7 +541,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "8.0.13"; }
+        static get VERSION() { return "8.0.14"; }
 
         static get SELECTORS() {
             return {
@@ -1055,9 +1058,10 @@
         }
         
         _enhanceMessages() {
-            const messages = document.querySelectorAll('[class*="message-"], [data-testid^="conv-msg-"] .focusable-list-item[aria-label]');
+            const messages = document.querySelectorAll('[class*="message-"], [data-testid^="conv-msg-"] .focusable-list-item');
             messages.forEach(msg => {
                 const isMediaAlbum = Boolean(msg.querySelector('[data-testid="media-album"]'));
+                const isContact = Boolean(msg.querySelector('button[title^="Conversar com"]'));
                 const focusable = DOMUtils.getMessageFocusTarget(msg);
 
                 // A legenda do álbum pode aparecer após o item receber foco. Guarda o
@@ -1069,12 +1073,21 @@
                     ? `${focusable?.dataset.wppA11yNativeAriaLabel || ''}|${DOMUtils.getMainMessageText(msg)}`
                     : '';
 
-                const albumLabelAlreadyApplied = Boolean(
-                    focusable?.dataset.wppA11yExpectedAlbumAriaLabel
+                const expectedLabel = focusable?.dataset.wppA11yExpectedAriaLabel || '';
+                const persistentLabelAlreadyApplied = Boolean(
+                    expectedLabel && focusable?.getAttribute('aria-label') === expectedLabel
                 );
-                if (msg.dataset.wppA11yProcessed === "true" &&
-                    (!isMediaAlbum ||
-                        (msg.dataset.wppA11yProcessedSignature === albumSignature && albumLabelAlreadyApplied))) return;
+                if (msg.dataset.wppA11yProcessed === "true") {
+                    if (isMediaAlbum) {
+                        if (msg.dataset.wppA11yProcessedSignature === albumSignature && persistentLabelAlreadyApplied) return;
+                    } else if (isContact) {
+                        // Contatos já processados por versões anteriores podem ter perdido
+                        // o aria-label e não possuir o marcador persistente. Reprocesse-os.
+                        if (persistentLabelAlreadyApplied) return;
+                    } else {
+                        return;
+                    }
+                }
 
                 // 1. Identifica o elemento exato que contém o texto
                 const textNode = msg.querySelector('[data-testid="selectable-text"]') || 
@@ -1093,8 +1106,8 @@
                     if (!focusable.hasAttribute('tabindex')) {
                         focusable.setAttribute('tabindex', '-1');
                     }
-                    if (isMediaAlbum) {
-                        focusable.dataset.wppA11yExpectedAlbumAriaLabel = announcementLabel;
+                    if (isMediaAlbum || isContact) {
+                        focusable.dataset.wppA11yExpectedAriaLabel = announcementLabel;
                     }
                     focusable.setAttribute('aria-label', announcementLabel);
                     
@@ -1685,14 +1698,14 @@
                 else if (mutation.type === 'attributes' && mutation.attributeName === 'aria-label') {
                     const target = mutation.target;
                     const newVal = target.getAttribute('aria-label');
-                    const expectedAlbumLabel = target.dataset.wppA11yExpectedAlbumAriaLabel;
+                    const expectedLabel = target.dataset.wppA11yExpectedAriaLabel;
 
                     // O WhatsApp pode restaurar o rótulo nativo do item focável depois
-                    // que a legenda do álbum já foi aplicada. Reponha apenas o rótulo
+                    // que um álbum ou contato já foi aprimorado. Reponha apenas o rótulo
                     // exato persistido pelo enhancer, sem interferir em outros elementos.
-                    if (expectedAlbumLabel) {
-                        if (newVal !== expectedAlbumLabel) {
-                            target.setAttribute('aria-label', expectedAlbumLabel);
+                    if (expectedLabel) {
+                        if (newVal !== expectedLabel) {
+                            target.setAttribute('aria-label', expectedLabel);
                         }
                         return;
                     }
