@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      8.0.11
+// @version      8.0.12
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -172,6 +172,14 @@
 
         static getMessageFocusTarget(msgNode) {
             if (!msgNode) return null;
+
+            const focusableItem = msgNode.matches?.('.focusable-list-item[aria-label]')
+                ? msgNode
+                : msgNode.querySelector?.('.focusable-list-item[aria-label]') ||
+                    msgNode.closest?.('.focusable-list-item[aria-label]') ||
+                    null;
+
+            if (focusableItem) return focusableItem;
 
             const messageRoot = msgNode.matches?.('.message-in, .message-out')
                 ? msgNode
@@ -450,7 +458,22 @@
                     isContact = true;
                 }
 
-                // 1. Mídia da mensagem
+                // 1. Álbum de mídias. O foco do WhatsApp fica no item com
+                // aria-label; use seu rótulo nativo e acrescente a legenda.
+                else if (msgNode.querySelector('[data-testid="media-album"]')) {
+                    const focusableItem = this.getMessageFocusTarget(msgNode);
+                    const nativeLabel = focusableItem?.dataset.wppA11yNativeAriaLabel ||
+                        focusableItem?.getAttribute('aria-label') ||
+                        '';
+                    const mainText = this.getMainMessageText(msgNode);
+
+                    content = nativeLabel || 'Álbum de mídias';
+                    if (mainText && !content.toLowerCase().includes(mainText.toLowerCase())) {
+                        content = `${content}. Legenda: ${mainText}`;
+                    }
+                }
+
+                // 2. Mídia da mensagem
                 else {
                     const mediaNode = this.getMessageImageNode(msgNode);
                     if (mediaNode) {
@@ -469,22 +492,15 @@
                             }
                         } else {
                             content = mediaLabel ? mediaLabel : "Imagem sem descrição";
-
-                            // O rótulo do álbum não inclui a legenda enviada junto às fotos.
-                            const mainText = this.getMainMessageText(msgNode);
-                            const isMediaAlbum = /álbum de mídias|album de midias/i.test(mediaLabel);
-                            if (isMediaAlbum && mainText && !content.toLowerCase().includes(mainText.toLowerCase())) {
-                                content = `${content}. Legenda: ${mainText}`;
-                            }
                         }
                     }
 
-                    // 2. Mensagens do Sistema
+                    // 3. Mensagens do Sistema
                     else if (msgNode.querySelector('._akbu')) {
                         content = msgNode.querySelector('._akbu').innerText;
                     }
 
-                    // 3. Texto padrão
+                    // 4. Texto padrão
                     else {
                         const quotedText = this.getQuotedMessageText(msgNode);
                         const mainText = this.getMainMessageText(msgNode);
@@ -522,7 +538,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "8.0.11"; }
+        static get VERSION() { return "8.0.12"; }
 
         static get SELECTORS() {
             return {
@@ -1039,10 +1055,22 @@
         }
         
         _enhanceMessages() {
-            const messages = document.querySelectorAll('[class*="message-"]');
+            const messages = document.querySelectorAll('[class*="message-"], [data-testid^="conv-msg-"] .focusable-list-item[aria-label]');
             messages.forEach(msg => {
-                // Se já processou o container E o texto interno, pula
-                if(msg.dataset.wppA11yProcessed === "true") return; 
+                const isMediaAlbum = Boolean(msg.querySelector('[data-testid="media-album"]'));
+                const focusable = DOMUtils.getMessageFocusTarget(msg);
+
+                // A legenda do álbum pode aparecer após o item receber foco. Guarda o
+                // rótulo nativo uma única vez e reprocessa somente se seu conteúdo mudar.
+                if (isMediaAlbum && focusable && !focusable.dataset.wppA11yNativeAriaLabel) {
+                    focusable.dataset.wppA11yNativeAriaLabel = focusable.getAttribute('aria-label') || '';
+                }
+                const albumSignature = isMediaAlbum
+                    ? `${focusable?.dataset.wppA11yNativeAriaLabel || ''}|${DOMUtils.getMainMessageText(msg)}`
+                    : '';
+
+                if (msg.dataset.wppA11yProcessed === "true" &&
+                    (!isMediaAlbum || msg.dataset.wppA11yProcessedSignature === albumSignature)) return;
 
                 // 1. Identifica o elemento exato que contém o texto
                 const textNode = msg.querySelector('[data-testid="selectable-text"]') || 
@@ -1054,7 +1082,6 @@
                 
                 if (content) {
                     // Prioriza o root da mensagem para o foco e leitura assistida.
-                    const focusable = DOMUtils.getMessageFocusTarget(msg);
                     const directionLabel = DOMUtils.getMessageDirectionLabel(msg);
                     const announcementLabel = directionLabel + DOMUtils.getMessageAnnouncementText(msg);
                     
@@ -1112,6 +1139,9 @@
                 }
                 
                 msg.dataset.wppA11yProcessed = "true";
+                if (isMediaAlbum) {
+                    msg.dataset.wppA11yProcessedSignature = albumSignature;
+                }
             });
         }
     }
