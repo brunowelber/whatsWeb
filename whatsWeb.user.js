@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      8.0.9
+// @version      8.0.11
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -303,6 +303,14 @@
         static getMainMessageText(msgNode) {
             if (!msgNode) return '';
 
+            // Em álbuns, a legenda inteira fica neste elemento; os spans internos
+            // podem conter apenas a última linha da mensagem.
+            const albumCaption = msgNode.querySelector('[data-testid~="album-caption"]');
+            if (albumCaption) {
+                const caption = albumCaption.getAttribute('aria-label') || albumCaption.innerText || albumCaption.textContent || '';
+                if (caption) return this.cleanText(caption);
+            }
+
             const candidates = Array.from(msgNode.querySelectorAll('[data-testid="selectable-text"], .copyable-text span, .copyable-text'))
                 .filter((el) => !el.closest('[data-testid="quoted-message"]') && !el.closest('[data-testid="msg-meta"]') && !el.closest('[data-testid="author"]'));
 
@@ -461,6 +469,13 @@
                             }
                         } else {
                             content = mediaLabel ? mediaLabel : "Imagem sem descrição";
+
+                            // O rótulo do álbum não inclui a legenda enviada junto às fotos.
+                            const mainText = this.getMainMessageText(msgNode);
+                            const isMediaAlbum = /álbum de mídias|album de midias/i.test(mediaLabel);
+                            if (isMediaAlbum && mainText && !content.toLowerCase().includes(mainText.toLowerCase())) {
+                                content = `${content}. Legenda: ${mainText}`;
+                            }
                         }
                     }
 
@@ -507,7 +522,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "8.0.9"; } 
+        static get VERSION() { return "8.0.11"; }
 
         static get SELECTORS() {
             return {
