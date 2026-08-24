@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         whatsWeb
 // @namespace    https://github.com/brunowelber/whatsWeb/
-// @version      8.0.12
+// @version      8.0.13
 // @description  Melhoria de acessibilidade para WhatsApp Web.
 // @author       Bruno Welber
 // @match        https://web.whatsapp.com
@@ -538,7 +538,7 @@
     }
 
     class Constants {
-        static get VERSION() { return "8.0.12"; }
+        static get VERSION() { return "8.0.13"; }
 
         static get SELECTORS() {
             return {
@@ -1069,8 +1069,12 @@
                     ? `${focusable?.dataset.wppA11yNativeAriaLabel || ''}|${DOMUtils.getMainMessageText(msg)}`
                     : '';
 
+                const albumLabelAlreadyApplied = Boolean(
+                    focusable?.dataset.wppA11yExpectedAlbumAriaLabel
+                );
                 if (msg.dataset.wppA11yProcessed === "true" &&
-                    (!isMediaAlbum || msg.dataset.wppA11yProcessedSignature === albumSignature)) return;
+                    (!isMediaAlbum ||
+                        (msg.dataset.wppA11yProcessedSignature === albumSignature && albumLabelAlreadyApplied))) return;
 
                 // 1. Identifica o elemento exato que contém o texto
                 const textNode = msg.querySelector('[data-testid="selectable-text"]') || 
@@ -1088,6 +1092,9 @@
                     // FORÇA a aplicação do label, sobrescrevendo qualquer anterior para garantir consistência
                     if (!focusable.hasAttribute('tabindex')) {
                         focusable.setAttribute('tabindex', '-1');
+                    }
+                    if (isMediaAlbum) {
+                        focusable.dataset.wppA11yExpectedAlbumAriaLabel = announcementLabel;
                     }
                     focusable.setAttribute('aria-label', announcementLabel);
                     
@@ -1678,6 +1685,17 @@
                 else if (mutation.type === 'attributes' && mutation.attributeName === 'aria-label') {
                     const target = mutation.target;
                     const newVal = target.getAttribute('aria-label');
+                    const expectedAlbumLabel = target.dataset.wppA11yExpectedAlbumAriaLabel;
+
+                    // O WhatsApp pode restaurar o rótulo nativo do item focável depois
+                    // que a legenda do álbum já foi aplicada. Reponha apenas o rótulo
+                    // exato persistido pelo enhancer, sem interferir em outros elementos.
+                    if (expectedAlbumLabel) {
+                        if (newVal !== expectedAlbumLabel) {
+                            target.setAttribute('aria-label', expectedAlbumLabel);
+                        }
+                        return;
+                    }
                     
                     // Se o novo valor tiver número de telefone (sequência de 4 ou mais dígitos), limpa novamente
                     if (newVal && newVal.match(/\d{4,}/)) {
